@@ -1,0 +1,72 @@
+from fastapi import FastAPI
+from app.middleware.pay_audit import install_pay_audit
+from app.routers import reports_coupons_audit
+from app.routers import reports_coupons
+from app.routers import pos_payx
+from app.routers import pos_coupons
+from app.routers import health
+from .db import Base, engine
+
+# IMPORTA MODELOS antes de create_all
+from .models import product as _product_models
+from .models import pos as _pos_models
+from .models import coupon as _coupon_models
+from .models import segment as _segment_models
+from .models import pos_session as _pos_session_models
+from .models import customer as _customer_models
+
+# Crea tablas faltantes (desarrollo)
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="ERP POS")
+
+
+
+
+
+
+
+install_pay_audit(app)
+app.include_router(reports_coupons_audit.router)
+app.include_router(reports_coupons.router)
+app.include_router(pos_payx.router)
+app.include_router(pos_coupons.router)
+app.include_router(health.router)
+# Salud
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+# Routers principales
+from .routers import ui as ui_router
+from .routers import session as session_router
+from .routers import pos as pos_router
+from .routers import coupon as coupon_router
+from .routers import wallet as wallet_router
+
+# UI simple
+app.include_router(ui_router.router)
+
+# Caja/sesiÃ³n SOLO bajo /session (para no duplicar y evitar 404 en el botÃ³n)
+app.include_router(session_router.router, tags=["session"])
+
+# POS: Ã³rdenes/pagos bajo /pos/order
+app.include_router(pos_router.router, prefix="/pos/order", tags=["pos"])
+
+# Cupones bajo /pos/coupon
+app.include_router(coupon_router.router, prefix="/pos/coupon", tags=["coupon"])
+
+# Wallet (CRM) y reportes
+app.include_router(wallet_router.router,   prefix="/crm",     tags=["wallet"])
+app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
+
+
+
+
+
+
+
+
+
+
+

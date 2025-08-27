@@ -1,0 +1,36 @@
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from .db import Base, engine
+
+# IMPORTA TODOS LOS MODELOS ANTES DE create_all
+from .models import product as product_models       # Product, ProductBarcode, PriceList, PriceListItem
+from .models import pos as pos_models               # PosOrder, PosOrderLine, PosPayment, PosPaymentSplit
+from .models import coupon as coupon_models         # Coupon
+from .models import segment as segment_models       # Segment
+from .models import pos_session as pos_session_models
+from .models import customer as customer_models  # PosSession, CashCount
+
+# Crea tablas faltantes en desarrollo
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="ERP POS")
+app.include_router(_session_router_auto.router, prefix="/pos")
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+# MONTA ROUTERS
+from .routers import scan, session, pos as pos_router, coupon as coupon_router, pay_guarded, pay_alias, coupon_apply  # noqa, ui
+from app.routers import session as _session_router_auto
+app.include_router(scan.router,    prefix="/pos/scan",    tags=["scan"])
+app.include_router(session.router, prefix="/pos/session", tags=["session"])
+app.include_router(pos_router.router,    prefix="/pos/order",  tags=["pos"])
+app.include_router(coupon_router.router,    prefix="/pos/coupon", tags=["coupon"])
+app.include_router(coupon_apply.router, prefix="/pos/order",  tags=["pos"])
+app.include_router(pay_guarded.router, prefix="/pos/order", tags=["pos"])
+app.include_router(pay_alias.router,    prefix="/pos/order", tags=["pos"])
+
+
+
+

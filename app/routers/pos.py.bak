@@ -1,0 +1,168 @@
+import os
+from fastapi import APIRouter, HTTPException, Header
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from typing import Literal
+from datetime import datetime, timedelta
+
+from ..db import SessionLocal
+from ..models.product import PriceListItem
+from ..models.pos import PosOrder, PosOrderLine, PosPayment, PosPaymentSplit
+
+# Opcional (solo si más adelante usamos inventario)
+try:
+    from ..models.stock import StockLocation, StockQuant, StockMove  # noqa
+except Exception:
+    StockLocation = StockQuant = StockMove = None
+
+POLICY = os.getenv("POS_STOCK_POLICY", "bypass")  # bypass | warn | enforce
+
+class DraftItem(BaseModel):
+    product_id: int
+    qty: float
+
+class DraftOrderRequest(BaseModel):
+    session_id: int
+    price_list_id: int
+    items: list[DraftItem] = Field(..., min_length=1)
+    location_code: str = "MAIN"
+
+class PaymentSplit(BaseModel):
+    method: Literal["cash","card"]
+    amount: float
+
+class PayRequest(BaseModel):
+    order_id: int
+    splits: list[PaymentSplit] = Field(..., min_length=1)
+
+class UndoRequest(BaseModel):
+    order_id: int
+
+router = APIRouter()
+
+def _serialize_order(o: PosOrder, lines: list[PosOrderLine]):
+    return {
+        "order_id": o.id, "order_no": o.order_no, "status": o.status,
+        "subtotal": float(o.subtotal or 0), "discount_total": float(o.discount_total or 0),
+        "tax_total": float(o.tax_total or 0), "total": float(o.total or 0),
+        "lines": [{"line_id": l.id, "product_id": l.product_id, "qty": float(l.qty),
+                   "unit_price": float(l.unit_price), "line_total": float(l.line_total)} for l in lines]
+    }
+
+@router.post("/draft")
+def create_order_draft(payload: DraftOrderRequest, x_idempotency_key: str | None = Header(default=None)):
+    db: Session = SessionLocal()
+    try:
+        # Idempotencia
+        if x_idempotency_key:
+            dup = db.query(PosOrder).filter_by(idempotency_key=x_idempotency_key).first()
+            if dup:
+                lines = db.query(PosOrderLine).filter_by(order_id=dup.id).all()
+                return _serialize_order(dup, lines)
+
+        subtotal = 0.0
+        lines_to_create: list[PosOrderLine] = []
+
+        for it in payload.items:
+            # Precio por lista (sigue vigente)
+            pli = db.query(PriceListItem).filter_by(
+                price_list_id=payload.price_list_id,
+                product_id=it.product_id
+            ).first()
+            if not pli:
+                raise HTTPException(status_code=422, detail=f"Producto {it.product_id} sin precio en lista {payload.price_list_id}")
+
+            # Política de stock:
+            # - bypass: no consulta ni reserva
+            # - warn/enforce: (dejado listo para fases posteriores)
+            if POLICY in ("warn", "enforce") and StockQuant is not None and StockLocation is not None:
+                # Aquí iría el check/reserva si quisiéramos activarlo
+                pass
+
+            line_total = float(pli.price) * float(it.qty)
+            subtotal += line_total
+            lines_to_create.append(PosOrderLine(product_id=it.product_id, qty=it.qty, unit_price=pli.price, line_total=line_total))
+
+        # Crear orden en borrador
+        o = PosOrder(
+            session_id=payload.session_id, price_list_id=payload.price_list_id,
+            subtotal=subtotal, discount_total=0, tax_total=0, total=subtotal,
+            status="draft", undo_until_at=datetime.utcnow() + timedelta(seconds=5),
+            idempotency_key=x_idempotency_key
+        )
+        db.add(o); db.commit(); db.refresh(o)
+
+        o.order_no = f"POS-{o.id:06d}"
+        for l in lines_to_create: l.order_id = o.id
+        db.add_all(lines_to_create); db.commit()
+
+        lines = db.query(PosOrderLine).filter_by(order_id=o.id).all()
+        return _serialize_order(o, lines)
+    finally:
+        db.close()
+
+@router.post("/pay")
+def pay_order(payload: PayRequest, x_idempotency_key: str | None = Header(default=None)):
+    db: Session = SessionLocal()
+    try:
+        o = db.get(PosOrder, payload.order_id)
+        if not o: raise HTTPException(404, "Orden no encontrada")
+
+        # Idempotencia del pago
+        if x_idempotency_key:
+            dup = db.query(PosPayment).filter_by(idempotency_key=x_idempotency_key, order_id=o.id).first()
+            if dup:
+                lines = db.query(PosOrderLine).filter_by(order_id=o.id).all()
+                splits = db.query(PosPaymentSplit).filter_by(payment_id=dup.id).all()
+                return {"order": _serialize_order(o, lines), "payment_id": dup.id, "method": dup.method,
+                        "amount": float(dup.amount), "splits": [{"method": s.method, "amount": float(s.amount)} for s in splits]}
+
+        if o.status != "draft":
+            if o.status == "paid":
+                lines = db.query(PosOrderLine).filter_by(order_id=o.id).all()
+                p = db.query(PosPayment).filter_by(order_id=o.id).first()
+                sp = db.query(PosPaymentSplit).filter_by(payment_id=p.id).all() if p else []
+                return {"order": _serialize_order(o, lines), "payment_id": (p.id if p else None),
+                        "method": (p.method if p else None), "amount": (float(p.amount) if p else 0.0),
+                        "splits": [{"method": s.method, "amount": float(s.amount)} for s in sp]}
+            raise HTTPException(409, f"Orden en estado {o.status}")
+
+        total_splits = round(sum(float(s.amount) for s in payload.splits), 2)
+        if round(total_splits,2) != round(float(o.total or 0),2):
+            raise HTTPException(422, f"Monto de splits {total_splits} != total de la orden {float(o.total or 0)}")
+        method = "mixed" if len(payload.splits) > 1 else payload.splits[0].method
+
+        p = PosPayment(order_id=o.id, method=method, amount=o.total, idempotency_key=x_idempotency_key, by_user="demo")
+        db.add(p); db.commit(); db.refresh(p)
+        for s in payload.splits:
+            db.add(PosPaymentSplit(payment_id=p.id, method=s.method, amount=s.amount))
+        db.commit()
+
+        # En V1 (bypass), NO tocamos inventario. Solo marcamos 'paid'.
+        o.status = "paid"; db.commit()
+
+        lines = db.query(PosOrderLine).filter_by(order_id=o.id).all()
+        sp = db.query(PosPaymentSplit).filter_by(payment_id=p.id).all()
+        return {"order": _serialize_order(o, lines), "payment_id": p.id, "method": p.method,
+                "amount": float(p.amount), "splits": [{"method": s.method, "amount": float(s.amount)} for s in sp]}
+    finally:
+        db.close()
+
+@router.post("/undo")
+def undo_order(payload: UndoRequest):
+    db: Session = SessionLocal()
+    try:
+        o = db.get(PosOrder, payload.order_id)
+        if not o: raise HTTPException(404, "Orden no encontrada")
+        now = datetime.utcnow()
+        if not o.undo_until_at or now > o.undo_until_at:
+            raise HTTPException(409, "Ventana de UNDO expirada")
+        if o.status != "draft":
+            raise HTTPException(409, f"UNDO soportado en MVP sólo para órdenes 'draft' (actual: {o.status})")
+
+        # En V1 (bypass): solo cambiar estado, sin tocar reservas.
+        o.status = "voided"; db.commit()
+        lines = db.query(PosOrderLine).filter_by(order_id=o.id).all()
+        return {"undone": True, "order": _serialize_order(o, lines)}
+    finally:
+        db.close()

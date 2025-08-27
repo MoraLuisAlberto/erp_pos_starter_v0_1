@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info: { title: ERP POS API, version: "0.1.0" }
+paths:
+  /health: { get: { summary: Health, responses: { '200': { description: ok } } } }
+  /api/v1/admin/context: { get: { summary: Contexto de tienda, responses: { '200': { description: ok } } } }
+  /api/v1/sales: { post: { summary: Crear venta, responses: { '200': { description: ok } } } }
+  /api/v1/payments: { post: { summary: Registrar pago, responses: { '200': { description: ok } } } }
+  /api/v1/carts/hold: { post: { summary: Guardar carrito, responses: { '200': { description: ok } } } }
+  /api/v1/carts/resume/{cart_id}: { post: { summary: Reanudar carrito, responses: { '200': { description: ok } } } }
+  /api/v1/coupons/validate: { post: { summary: Validar cupón, responses: { '200': { description: ok } } } }
+  /api/v1/sync/limits: { get: { summary: Límites offline, responses: { '200': { description: ok } } } }

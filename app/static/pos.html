@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>POS — MVP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="/static/pos.css"/>
+</head>
+<body>
+  <header>
+    <h1>POS — MVP</h1>
+    <div class="row">
+      <label>Session ID:</label><input id="sessionId" size="6" readonly />
+      <button id="btnOpen">Abrir sesión</button>
+      <span id="sessStatus" class="pill">–</span>
+    </div>
+    <div class="row">
+      <label>Price List:</label><input id="priceListId" type="number" value="1" min="1" />
+      <label>Cliente:</label><input id="customerId" type="number" placeholder="(opcional)"/>
+    </div>
+  </header>
+
+  <main>
+    <section class="scan">
+      <input id="barcode" placeholder="Escanea código de barras…" autofocus />
+      <button id="btnScan">Agregar</button>
+      <span id="scanMsg"></span>
+    </section>
+
+    <section class="cart">
+      <table id="cartTbl">
+        <thead><tr><th>Producto</th><th>U.</th><th>Precio</th><th>Importe</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="coupon">
+        <input id="couponCode" placeholder="Cupón (ej. WELCOME10)"/>
+        <button id="btnDraft">Calcular (Draft)</button>
+      </div>
+      <div class="totals">
+        <div>Subtotal: <b id="subtot">0.00</b></div>
+        <div>Desc.: <b id="disc">0.00</b></div>
+        <div>Impuestos: <b id="tax">0.00</b></div>
+        <div>Total: <b id="total">0.00</b></div>
+      </div>
+      <div class="actions">
+        <button id="btnPayCash">Pagar (Efectivo)</button>
+        <button id="btnUndo">UNDO (5s)</button>
+      </div>
+      <div id="orderInfo"></div>
+    </section>
+  </main>
+
+  <script src="/static/pos.js"></script>
+</body>
+</html>

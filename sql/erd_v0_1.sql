@@ -1,0 +1,11 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS stores (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currency TEXT DEFAULT 'MXN');
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, full_name TEXT, role TEXT DEFAULT 'cashier');
+CREATE TABLE IF NOT EXISTS cash_sessions (id INTEGER PRIMARY KEY, store_id INTEGER NOT NULL REFERENCES stores(id), user_id INTEGER NOT NULL REFERENCES users(id), opened_at TEXT DEFAULT (datetime('now')), closed_at TEXT, opening_balance REAL DEFAULT 0.0, closing_balance REAL, status TEXT DEFAULT 'OPEN');
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, price REAL NOT NULL, control_stock INTEGER DEFAULT 0, stock_qty REAL DEFAULT 0.0);
+CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price_list TEXT);
+CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, type TEXT DEFAULT 'percent', value REAL DEFAULT 0.0, valid_from TEXT, valid_to TEXT, usage_limit INTEGER DEFAULT 0, used_count INTEGER DEFAULT 0, segment TEXT, active INTEGER DEFAULT 1, offline_allowed INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sales (id INTEGER PRIMARY KEY, store_id INTEGER NOT NULL REFERENCES stores(id), user_id INTEGER NOT NULL REFERENCES users(id), cash_session_id INTEGER NOT NULL REFERENCES cash_sessions(id), customer_id INTEGER REFERENCES customers(id), status TEXT DEFAULT 'OPEN', subtotal REAL DEFAULT 0.0, discount_total REAL DEFAULT 0.0, total REAL DEFAULT 0.0, created_at TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS sale_items (id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), product_id INTEGER NOT NULL REFERENCES products(id), qty REAL NOT NULL, unit_price REAL NOT NULL, discount REAL DEFAULT 0.0, total REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS payments (id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), method TEXT NOT NULL, amount REAL NOT NULL, bank TEXT, card_last4 TEXT, ext_ref TEXT, created_at TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS carts (id INTEGER PRIMARY KEY, store_id INTEGER NOT NULL REFERENCES stores(id), user_id INTEGER NOT NULL REFERENCES users(id), payload TEXT NOT NULL, status TEXT DEFAULT 'HELD', created_at TEXT DEFAULT (datetime('now')));

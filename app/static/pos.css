@@ -1,0 +1,17 @@
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:1rem;max-width:980px}
+h1{margin:0 0 .5rem 0}
+header{border-bottom:1px solid #ddd;padding-bottom:.5rem;margin-bottom:1rem}
+.row{display:flex;gap:.5rem;align-items:center;margin:.25rem 0}
+.pill{background:#eef;border:1px solid #aac;border-radius:999px;padding:.15rem .5rem}
+.scan{display:flex;gap:.5rem;align-items:center;margin:.5rem 0}
+#barcode{flex:1}
+.cart table{width:100%;border-collapse:collapse;margin:.5rem 0}
+.cart th,.cart td{border-bottom:1px solid #eee;padding:.4rem}
+.cart td:last-child{text-align:right}
+.coupon{display:flex;gap:.5rem;align-items:center;margin:.5rem 0}
+.totals{display:flex;gap:1.5rem;justify-content:flex-end;font-size:1.1rem}
+.actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.5rem}
+button{padding:.45rem .8rem}
+#scanMsg{color:#666}
+.err{color:#b00}
+.ok{color:#070}
