@@ -1,0 +1,406 @@
+# Z-fix-weekend-idem.ps1
+Stop = "Stop"
+
+app\middleware\idempotency.py   = "app\middleware\idempotency.py"
+app\main.py   = "app\main.py"
+app\routers\coupon.py = "app\routers\coupon.py"
+
+# asegurar carpeta
+New-Item -ItemType Directory -Force -Path (Split-Path app\middleware\idempotency.py) | Out-Null
+
+# 1) Middleware de idempotencia (con bloqueo por clave)
+import asyncio, time, json
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class _Cache:
+    def __init__(self, ttl=3600, max_entries=2048):
+        self.ttl = ttl
+        self.max_entries = max_entries
+        self._store = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, key):
+        async with self._lock:
+            item = self._store.get(key)
+            if not item:
+                return None
+            if item["exp"] < time.time():
+                self._store.pop(key, None)
+                return None
+            return item
+
+    async def set(self, key, val):
+        async with self._lock:
+            if len(self._store) >= self.max_entries:
+                self._store.pop(next(iter(self._store)))
+            self._store[key] = val
+
+class _KeyedLocks:
+    def __init__(self):
+        self._locks = {}
+        self._guard = asyncio.Lock()
+    async def acquire(self, key):
+        async with self._guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+        await lock.acquire()
+        return lock
+
+_idem_cache = _Cache(ttl=3600)
+_keyed_locks = _KeyedLocks()
+
+class PayDiscountedIdempotency(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method != "POST" or request.url.path != "/pos/order/pay-discounted":
+            return await call_next(request)
+
+        idem_key = request.headers.get("Idempotency-Key") or request.headers.get("IdempotencyKey")
+        if not idem_key:
+            return await call_next(request)
+
+        cache_key = f"{request.method}:{request.url.path}:{idem_key}"
+
+        # 1) replay inmediato si ya hay cache
+        cached = await _idem_cache.get(cache_key)
+        if cached:
+            headers = dict(cached["headers"])
+            headers["Idempotent-Replay"] = "true"
+            return Response(
+                content=cached["body"],
+                status_code=cached["status"],
+                media_type=cached["media_type"],
+                headers=headers,
+            )
+
+        # 2) sección crítica por clave
+        lock = await _keyed_locks.acquire(cache_key)
+        try:
+            cached = await _idem_cache.get(cache_key)
+            if cached:
+                headers = dict(cached["headers"])
+                headers["Idempotent-Replay"] = "true"
+                return Response(
+                    content=cached["body"],
+                    status_code=cached["status"],
+                    media_type=cached["media_type"],
+                    headers=headers,
+                )
+
+            # 3) procesar y capturar body
+            response = await call_next(request)
+            body_bytes = b""
+            async for chunk in response.body_iterator:
+                body_bytes += chunk
+
+            new_resp = Response(
+                content=body_bytes,
+                status_code=response.status_code,
+                media_type=response.media_type,
+                headers=dict(response.headers),
+            )
+
+            # 4) cachear solo si 200 y contiene payment_id
+            should_cache = response.status_code == 200
+            if should_cache:
+                try:
+                    js = json.loads(body_bytes.decode("utf-8"))
+                    should_cache = "payment_id" in js
+                except Exception:
+                    should_cache = False
+
+            if should_cache:
+                await _idem_cache.set(cache_key, {
+                    "status": new_resp.status_code,
+                    "headers": dict(new_resp.headers),
+                    "media_type": new_resp.media_type,
+                    "body": body_bytes,
+                    "exp": time.time() + 3600,
+                })
+
+            return new_resp
+        finally:
+            lock.release()
+
+def install_idempotency(app):
+    app.add_middleware(PayDiscountedIdempotency) = @'
+import asyncio, time, json
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class _Cache:
+    def __init__(self, ttl=3600, max_entries=2048):
+        self.ttl = ttl
+        self.max_entries = max_entries
+        self._store = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, key):
+        async with self._lock:
+            item = self._store.get(key)
+            if not item:
+                return None
+            if item["exp"] < time.time():
+                self._store.pop(key, None)
+                return None
+            return item
+
+    async def set(self, key, val):
+        async with self._lock:
+            if len(self._store) >= self.max_entries:
+                self._store.pop(next(iter(self._store)))
+            self._store[key] = val
+
+class _KeyedLocks:
+    def __init__(self):
+        self._locks = {}
+        self._guard = asyncio.Lock()
+    async def acquire(self, key):
+        async with self._guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+        await lock.acquire()
+        return lock
+
+_idem_cache = _Cache(ttl=3600)
+_keyed_locks = _KeyedLocks()
+
+class PayDiscountedIdempotency(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method != "POST" or request.url.path != "/pos/order/pay-discounted":
+            return await call_next(request)
+
+        idem_key = request.headers.get("Idempotency-Key") or request.headers.get("IdempotencyKey")
+        if not idem_key:
+            return await call_next(request)
+
+        cache_key = f"{request.method}:{request.url.path}:{idem_key}"
+
+        cached = await _idem_cache.get(cache_key)
+        if cached:
+            headers = dict(cached["headers"])
+            headers["Idempotent-Replay"] = "true"
+            return Response(
+                content=cached["body"],
+                status_code=cached["status"],
+                media_type=cached["media_type"],
+                headers=headers,
+            )
+
+        lock = await _keyed_locks.acquire(cache_key)
+        try:
+            cached = await _idem_cache.get(cache_key)
+            if cached:
+                headers = dict(cached["headers"])
+                headers["Idempotent-Replay"] = "true"
+                return Response(
+                    content=cached["body"],
+                    status_code=cached["status"],
+                    media_type=cached["media_type"],
+                    headers=headers,
+                )
+
+            response = await call_next(request)
+            body_bytes = b""
+            async for chunk in response.body_iterator:
+                body_bytes += chunk
+
+            new_resp = Response(
+                content=body_bytes,
+                status_code=response.status_code,
+                media_type=response.media_type,
+                headers=dict(response.headers),
+            )
+
+            should_cache = response.status_code == 200
+            if should_cache:
+                try:
+                    js = json.loads(body_bytes.decode("utf-8"))
+                    should_cache = "payment_id" in js
+                except Exception:
+                    should_cache = False
+
+            if should_cache:
+                await _idem_cache.set(cache_key, {
+                    "status": new_resp.status_code,
+                    "headers": dict(new_resp.headers),
+                    "media_type": new_resp.media_type,
+                    "body": body_bytes,
+                    "exp": time.time() + 3600,
+                })
+
+            return new_resp
+        finally:
+            lock.release()
+
+def install_idempotency(app):
+    app.add_middleware(PayDiscountedIdempotency)
+'@
+
+Set-Content -Path app\middleware\idempotency.py -Value import asyncio, time, json
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class _Cache:
+    def __init__(self, ttl=3600, max_entries=2048):
+        self.ttl = ttl
+        self.max_entries = max_entries
+        self._store = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, key):
+        async with self._lock:
+            item = self._store.get(key)
+            if not item:
+                return None
+            if item["exp"] < time.time():
+                self._store.pop(key, None)
+                return None
+            return item
+
+    async def set(self, key, val):
+        async with self._lock:
+            if len(self._store) >= self.max_entries:
+                self._store.pop(next(iter(self._store)))
+            self._store[key] = val
+
+class _KeyedLocks:
+    def __init__(self):
+        self._locks = {}
+        self._guard = asyncio.Lock()
+    async def acquire(self, key):
+        async with self._guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+        await lock.acquire()
+        return lock
+
+_idem_cache = _Cache(ttl=3600)
+_keyed_locks = _KeyedLocks()
+
+class PayDiscountedIdempotency(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method != "POST" or request.url.path != "/pos/order/pay-discounted":
+            return await call_next(request)
+
+        idem_key = request.headers.get("Idempotency-Key") or request.headers.get("IdempotencyKey")
+        if not idem_key:
+            return await call_next(request)
+
+        cache_key = f"{request.method}:{request.url.path}:{idem_key}"
+
+        # 1) replay inmediato si ya hay cache
+        cached = await _idem_cache.get(cache_key)
+        if cached:
+            headers = dict(cached["headers"])
+            headers["Idempotent-Replay"] = "true"
+            return Response(
+                content=cached["body"],
+                status_code=cached["status"],
+                media_type=cached["media_type"],
+                headers=headers,
+            )
+
+        # 2) sección crítica por clave
+        lock = await _keyed_locks.acquire(cache_key)
+        try:
+            cached = await _idem_cache.get(cache_key)
+            if cached:
+                headers = dict(cached["headers"])
+                headers["Idempotent-Replay"] = "true"
+                return Response(
+                    content=cached["body"],
+                    status_code=cached["status"],
+                    media_type=cached["media_type"],
+                    headers=headers,
+                )
+
+            # 3) procesar y capturar body
+            response = await call_next(request)
+            body_bytes = b""
+            async for chunk in response.body_iterator:
+                body_bytes += chunk
+
+            new_resp = Response(
+                content=body_bytes,
+                status_code=response.status_code,
+                media_type=response.media_type,
+                headers=dict(response.headers),
+            )
+
+            # 4) cachear solo si 200 y contiene payment_id
+            should_cache = response.status_code == 200
+            if should_cache:
+                try:
+                    js = json.loads(body_bytes.decode("utf-8"))
+                    should_cache = "payment_id" in js
+                except Exception:
+                    should_cache = False
+
+            if should_cache:
+                await _idem_cache.set(cache_key, {
+                    "status": new_resp.status_code,
+                    "headers": dict(new_resp.headers),
+                    "media_type": new_resp.media_type,
+                    "body": body_bytes,
+                    "exp": time.time() + 3600,
+                })
+
+            return new_resp
+        finally:
+            lock.release()
+
+def install_idempotency(app):
+    app.add_middleware(PayDiscountedIdempotency) -Encoding UTF8
+Write-Host "✓ Middleware escrito en app\middleware\idempotency.py"
+
+# 2) Ajuste WEEKEND15: permitir sábado y domingo (varios patrones posibles)
+if (Test-Path app\routers\coupon.py) {
+   = Get-Content app\routers\coupon.py -Raw
+   = 
+   =  -replace '\bweekday\s*==\s*("|\')sat\1', 'weekday in ("sat","sun")'
+   =  -replace 'weekday\s+in\s+\[\s*("|\')sat\1\s*\]', 'weekday in ("sat","sun")'
+   =  -replace 'weekday\s+in\s+\(\s*("|\')sat\1\s*(,)?\s*\)', 'weekday in ("sat","sun")'
+   =  -replace 'weekday\s+in\s+\{\s*("|\')sat\1\s*\}', 'weekday in ("sat","sun")'
+  if ( -ne ) {
+    Set-Content -Path app\routers\coupon.py -Value  -Encoding UTF8
+    Write-Host "✓ coupon.py actualizado: WEEKEND15 acepta 'sat' y 'sun'."
+  } else {
+    Write-Host "• coupon.py: no se detectó patrón; sin cambios."
+  }
+} else {
+  Write-Warning "No existe app\routers\coupon.py"
+}
+
+# 3) main.py: importar e instalar el middleware (sin duplicar)
+if (Test-Path app\main.py) {
+   = Get-Content app\main.py -Raw
+   = False
+  if ( -notmatch 'from\s+app\.middleware\.idempotency\s+import\s+install_idempotency') {
+     =  -replace '(from\s+fastapi\s+import\s+FastAPI[^\r\n]*\r?\n)', ("$1from app.middleware.idempotency import install_idempotency
+")
+     = True
+  }
+  if ( -notmatch 'install_idempotency\(\s*app\s*\)') {
+     =  -replace '(app\s*=\s*FastAPI\([^\)]*\)\s*)', ("$1
+install_idempotency(app)
+")
+     = True
+  }
+  if () {
+    Set-Content -Path app\main.py -Value  -Encoding UTF8
+    Write-Host "✓ main.py actualizado: install_idempotency(app)"
+  } else {
+    Write-Host "• main.py ya estaba correcto."
+  }
+} else {
+  Write-Warning "No existe app\main.py"
+}
+
+Write-Host "== Parche aplicado. =="

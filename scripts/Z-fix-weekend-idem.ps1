@@ -1,3 +1,15 @@
+$ErrorActionPreference = "Stop"
+
+# Rutas
+$idemPath   = "app\middleware\idempotency.py"
+$mainPath   = "app\main.py"
+$couponPath = "app\routers\coupon.py"
+
+# Asegurar carpeta del middleware
+New-Item -ItemType Directory -Force -Path (Split-Path $idemPath -Parent) | Out-Null
+
+# 1) Escribir/actualizar el middleware de idempotencia (con lock por clave)
+$py = @'
 import asyncio, time, json
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -53,6 +65,7 @@ class PayDiscountedIdempotency(BaseHTTPMiddleware):
 
         cache_key = f"{request.method}:{request.url.path}:{idem_key}"
 
+        # Replay inmediato si ya estaba en caché
         cached = await _idem_cache.get(cache_key)
         if cached:
             headers = dict(cached["headers"])
@@ -64,6 +77,7 @@ class PayDiscountedIdempotency(BaseHTTPMiddleware):
                 headers=headers,
             )
 
+        # Sección crítica por clave
         lock = await _keyed_locks.acquire(cache_key)
         try:
             cached = await _idem_cache.get(cache_key)
@@ -77,6 +91,7 @@ class PayDiscountedIdempotency(BaseHTTPMiddleware):
                     headers=headers,
                 )
 
+            # Procesar y capturar body
             response = await call_next(request)
             body_bytes = b""
             async for chunk in response.body_iterator:
@@ -89,6 +104,7 @@ class PayDiscountedIdempotency(BaseHTTPMiddleware):
                 headers=dict(response.headers),
             )
 
+            # Cachear solo 200 con "payment_id"
             should_cache = response.status_code == 200
             if should_cache:
                 try:
