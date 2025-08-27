@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Query, Response
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timezone
+from app.utils.atomic_file import write_json_atomic, append_jsonl_atomic
 import json
 import io
 import csv
+
+
 
 from app.routers.pos_coupons import _AUDIT_FILE  # ruta del archivo
 
