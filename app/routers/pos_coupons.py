@@ -228,47 +228,57 @@ def compute_coupon_result(code: str, amount: Decimal, at_dt: Optional[_DT] = Non
         rule["days_mask"] = _m
     # WEEKDAYS_SUPPORT_END
         # ANCLA: dentro de compute_coupon_result, tras obtener rule = COUPONS.get(code_up)
-    # Validación de fin de semana para WEEKEND15 usando weekdays o days_mask.
+            # Validación de fin de semana para WEEKEND15 usando weekdays o days_mask.
     if code_up == "WEEKEND15" and rule is not None:
-        # Determinar at_dt (preferente). Si no viene, intentar derivarlo de 'weekday' si está disponible.
-        _at = at_dt if 'at_dt' in locals() or 'at_dt' in globals() else None
+        _at = at_dt
         if _at is None:
-            _w = locals().get("weekday", None)  # sólo si compute_coupon_result recibe/propaga 'weekday'
-            if isinstance(_w, str):
-                _s = _w.strip().lower()
-                _map3 = {
-                    "mon":0, "tue":1, "wed":2, "thu":3, "fri":4, "sat":5, "sun":6,
-                    "lun":0, "mar":1, "mie":2, "mié":2, "jue":3, "vie":4, "sab":5, "sáb":5, "dom":6,
-                }
-                _w = _map3.get(_s[:3], None)
-            if isinstance(_w, int) and 0 <= _w <= 6:
-                _now_utc = _DT.utcnow()
-                _base_noon = _now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
-                _delta = (_w - _base_noon.weekday()) % 7
-                if _delta == 0:
-                    _delta = 7
-                _at = _base_noon + _TD(days=_delta)
-
-        if _at is None:
-            # Sin información temporal suficiente para validar regla de días.
-            return {"valid": False, "reason": "time_window_not_met"}
+            base_amount = amount if amount is not None else Decimal("0")
+            return {
+                "code": code_up,
+                "discount_type": rule.get("type", "percent"),
+                "discount_amount": money(Decimal("0")),
+                "new_total": money(base_amount),
+                "valid": False,
+                "reason": "time_window_not_met",
+            }
 
         _day_idx = _at.weekday()  # Mon=0 ... Sun=6
         _allowed: set[int] = set()
 
-        # Si la regla trae weekdays explícitos, úsalo; si no, days_mask (bits 0..6 => Mon..Sun)
-        if isinstance(rule.get("weekdays"), (list, tuple)) and rule["weekdays"]:
-            _allowed = {int(x) for x in rule["weekdays"] if isinstance(x, (int, str))}
-        elif rule.get("days_mask") is not None:
+        weekdays_field = rule.get("weekdays")
+        if isinstance(weekdays_field, (list, tuple)) and weekdays_field:
+            _map3 = {
+                "mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6,
+                "lun":0,"mar":1,"mie":2,"mié":2,"jue":3,"vie":4,"sab":5,"sáb":5,"dom":6,
+            }
+            _tmp = set()
+            for x in weekdays_field:
+                if isinstance(x, int):
+                    if 0 <= x <= 6:
+                        _tmp.add(x)
+                elif isinstance(x, str):
+                    s = x.strip().lower()
+                    if s:
+                        _tmp.add(_map3.get(s[:3], None))
+            _allowed = {d for d in _tmp if d is not None}
+        else:
+            days_mask = rule.get("days_mask")
             try:
-                _mask = int(rule["days_mask"])
+                _mask = int(days_mask) if days_mask is not None else 0
                 _allowed = {i for i in range(7) if (_mask >> i) & 1}
             except Exception:
                 _allowed = set()
 
-        # Si la regla define días y no coincide, reporta
         if _allowed and _day_idx not in _allowed:
-            return {"valid": False, "reason": "weekday_not_allowed"}
+            base_amount = amount if amount is not None else Decimal("0")
+            return {
+                "code": code_up,
+                "discount_type": rule.get("type", "percent"),
+                "discount_amount": money(Decimal("0")),
+                "new_total": money(base_amount),
+                "valid": False,
+                "reason": "weekday_not_allowed",
+            }
     # (fin bloque WEEKEND15)
 
 
