@@ -13,3 +13,11 @@ app/**/*.bak*
 data/*.log
 scripts/logs/
 *.db
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/*.log
+scripts/logs/
