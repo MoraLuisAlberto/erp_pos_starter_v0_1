@@ -1,22 +1,18 @@
-import os, json, tempfile
-from typing import Any, Dict
+from __future__ import annotations
+import os, tempfile, io, json
 
-try:
-    # bloqueo de archivo multiplataforma (opcional; instalar "filelock")
-    from filelock import FileLock  # type: ignore
-except Exception:
-    FileLock = None  # fallback sin lock a nivel OS
+__all__ = ["atomic_write_text", "write_json_atomic", "append_jsonl_atomic"]
 
-def _ensure_dir(path: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-def write_json_atomic(path: str, data: Dict[str, Any]) -> None:
-    """Escribe JSON de forma atómica: temp -> os.replace()."""
-    _ensure_dir(path)
-    fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=os.path.dirname(path))
+def atomic_write_text(path: str, text: str, encoding: str = "utf-8") -> None:
+    """
+    Escritura atómica por reemplazo: escribe en un archivo temporal y luego hace os.replace().
+    """
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=d)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        with io.open(fd, "w", encoding=encoding, newline="") as f:
+            f.write(text)
         os.replace(tmp, path)
     finally:
         try:
@@ -25,15 +21,23 @@ def write_json_atomic(path: str, data: Dict[str, Any]) -> None:
         except Exception:
             pass
 
-def append_jsonl_atomic(path: str, obj: Dict[str, Any]) -> None:
-    """Agrega una línea JSONL; usa bloqueo si 'filelock' está disponible."""
-    _ensure_dir(path)
-    line = json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"
-    if FileLock:
-        lock_path = path + ".lock"
-        with FileLock(lock_path, timeout=5):
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(line)
-    else:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+def write_json_atomic(path: str, obj, ensure_ascii: bool = False, separators=(",", ":")) -> None:
+    """
+    Serializa a JSON y escribe de forma atómica.
+    """
+    s = json.dumps(obj, ensure_ascii=ensure_ascii, separators=separators)
+    atomic_write_text(path, s)
+
+def append_jsonl_atomic(path: str, obj, ensure_ascii: bool = False) -> None:
+    """
+    Anexa una línea JSON (JSONL). Para append usamos flush+fsync para minimizar riesgo
+    de cortes, pero no se hace replace del archivo completo para mantener O(1).
+    """
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    line = json.dumps(obj, ensure_ascii=ensure_ascii)
+    # Nota: en Windows fsync funciona sobre el handle; esto es suficiente para nuestros tests.
+    with open(path, "a", encoding="utf-8", newline="\n") as f:
+        f.write(line + "\n")
+        f.flush()
+        os.fsync(f.fileno())

@@ -2,6 +2,8 @@ from app.routers import ui_pos_wallet
 from app.routers import session
 from app.routers import coupon
 from fastapi import FastAPI
+from app.routers import crm_wallet
+from app.routers import wallet
 from app.middleware.idempotency import install_idempotency
 from app.routers import pos_orders_min
 from app.routers import ui
@@ -26,6 +28,10 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ERP POS")
 
+
+
+app.include_router(crm_wallet.router)
+app.include_router(wallet.router)
 install_idempotency(app)
 app.include_router(pos_orders_min.router)
 app.include_router(health.router)
@@ -39,6 +45,8 @@ app.include_router(reports_coupons.router)
 app.include_router(pos_payx.router)
 app.include_router(pos_coupons.router)
 # Salud
+
+
 
 
 

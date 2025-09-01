@@ -1,131 +1,157 @@
-from datetime import datetime, date
-from typing import Optional
+from __future__ import annotations
+import time, json, uuid
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.orm import Session
-from ..db import SessionLocal
+
+from app.utils.atomic_file import write_json_atomic, append_jsonl_atomic
 
 router = APIRouter()
-reports = APIRouter()
 
-# ------------- Helpers SQL “planos” (evitan circular imports) -------------
-def _get_wallet(db: Session, customer_id: int):
-    row = db.execute(text("SELECT id, balance, status FROM wallet WHERE customer_id=:c"), {"c": customer_id}).fetchone()
-    return row
+BALANCES = Path("data/wallet_balances.json")
+LEDGER   = Path("data/wallet_ledger.jsonl")
 
-def _ensure_wallet(db: Session, customer_id: int):
-    row = _get_wallet(db, customer_id)
-    if row: return row
-    db.execute(text("INSERT INTO wallet(customer_id,balance,status) VALUES(:c,0,'active')"), {"c": customer_id})
-    db.commit()
-    return _get_wallet(db, customer_id)
+# carga/guarda balances (archivo pequeño)
+def _load_balances() -> Dict[str, float]:
+    if not BALANCES.exists():
+        return {}
+    try:
+        return json.loads(BALANCES.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
-def _deposit(db: Session, wallet_id: int, amount: float, reason: str, key: Optional[str], by_user: str="demo"):
-    if amount <= 0: raise HTTPException(422, "Monto de depósito inválido")
-    if key:
-        exists = db.execute(text("SELECT id FROM wallet_tx WHERE idempotency_key=:k"), {"k":key}).fetchone()
-        if exists: return exists[0]
-    db.execute(text("""
-        INSERT INTO wallet_tx(wallet_id,kind,amount,sign,delta,reason,by_user,idempotency_key)
-        VALUES (:w,'deposit',:a, +1, :a, :r, :u, :k)
-    """), {"w":wallet_id, "a":amount, "r":reason, "u":by_user, "k":key})
-    db.execute(text("UPDATE wallet SET balance = balance + :a WHERE id=:w"), {"a": amount, "w": wallet_id})
-    db.commit()
-    txid = db.execute(text("SELECT id FROM wallet_tx WHERE idempotency_key=:k"), {"k":key}).scalar() if key else db.execute(text("SELECT last_insert_rowid()")).scalar()
-    return txid
+def _save_balances(bal: Dict[str, float]) -> None:
+    write_json_atomic(BALANCES, bal)
 
-def _redeem(db: Session, wallet_id: int, amount: float, reason: str, order_id: int, key: Optional[str], by_user: str="demo"):
-    if amount <= 0: raise HTTPException(422, "Monto a aplicar inválido")
-    bal = db.execute(text("SELECT balance FROM wallet WHERE id=:w"), {"w": wallet_id}).scalar() or 0.0
-    if amount > bal + 1e-9: raise HTTPException(422, f"Saldo insuficiente: {bal}")
-    if key:
-        exists = db.execute(text("SELECT id FROM wallet_tx WHERE idempotency_key=:k"), {"k":key}).fetchone()
-        if exists: return exists[0]
-    db.execute(text("""
-        INSERT INTO wallet_tx(wallet_id,kind,amount,sign,delta,reason,order_id,by_user,idempotency_key)
-        VALUES (:w,'redeem',:a, -1, -:a, :r, :o, :u, :k)
-    """), {"w":wallet_id, "a":amount, "r":reason, "o":order_id, "u":by_user, "k":key})
-    db.execute(text("UPDATE wallet SET balance = balance - :a WHERE id=:w"), {"a": amount, "w": wallet_id})
-    db.commit()
-    txid = db.execute(text("SELECT id FROM wallet_tx WHERE idempotency_key=:k"), {"k":key}).scalar() if key else db.execute(text("SELECT last_insert_rowid()")).scalar()
-    return txid
+def _append_ledger(entry: Dict[str, Any]) -> None:
+    append_jsonl_atomic(LEDGER, entry)
 
-# --------------------------- Schemas --------------------------------------
-class LinkReq(BaseModel):
+# Idempotencia simple en memoria (TTL 1h). Solo cachea 200 OK.
+_IDEM: Dict[str, Dict[str, Any]] = {}
+_IDEM_EXP: Dict[str, float] = {}
+_IDEM_TTL = 3600.0
+
+def _idem_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not key: return None
+    exp = _IDEM_EXP.get(key, 0)
+    if exp < time.time():
+        _IDEM.pop(key, None)
+        _IDEM_EXP.pop(key, None)
+        return None
+    return _IDEM.get(key)
+
+def _idem_set(key: Optional[str], value: Dict[str, Any]) -> None:
+    if not key: return
+    _IDEM[key] = value
+    _IDEM_EXP[key] = time.time() + _IDEM_TTL
+
+# ====== Schemas ======
+class CreditReq(BaseModel):
+    customer_id: int = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
+
+class DebitReq(BaseModel):
+    customer_id: int = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
+
+class TxResp(BaseModel):
+    ok: bool
+    tx_id: str
     customer_id: int
+    amount: float
+    balance: float
+    replay: bool = False
 
-class DepositReq(BaseModel):
-    customer_id: int
-    amount: float = Field(gt=0)
-    reason: str = "manual"
-    by_user: str = "demo"
+# ====== Endpoints ======
+@router.get("/wallet/balance")
+def wallet_balance(customer_id: int):
+    bal = _load_balances()
+    return {"customer_id": customer_id, "balance": float(bal.get(str(customer_id), 0.0))}
 
-class ApplyCalcReq(BaseModel):
-    order_id: int
-    customer_id: int
+@router.get("/wallet/ledger")
+def wallet_ledger(customer_id: Optional[int] = None, limit: int = 50):
+    limit = max(1, min(1000, limit))
+    entries: List[Dict[str, Any]] = []
+    if LEDGER.exists():
+        # lee últimas líneas (simple: carga todo y recorta al final)
+        lines = LEDGER.read_text(encoding="utf-8").splitlines()
+        for line in lines[-2000:]:
+            try:
+                e = json.loads(line)
+                entries.append(e)
+            except Exception:
+                continue
+    if customer_id is not None:
+        entries = [e for e in entries if e.get("customer_id") == customer_id]
+    return {"count": len(entries[-limit:]), "entries": entries[-limit:]}
 
-# --------------------------- Endpoints ------------------------------------
-@router.post("/wallet/link")
-def link_wallet(payload: LinkReq):
-    db = SessionLocal()
-    try:
-        w = _ensure_wallet(db, payload.customer_id)
-        return {"customer_id": payload.customer_id, "wallet_id": w[0], "balance": float(w[1]), "status": w[2]}
-    finally:
-        db.close()
+@router.post("/wallet/credit", response_model=TxResp)
+def wallet_credit(
+    req: CreditReq,
+    Idempotency_Key: Optional[str] = Header(default=None, convert_underscores=True),
+):
+    # idempotent replay
+    cached = _idem_get(Idempotency_Key)
+    if cached:
+        return {**cached, "replay": True}
 
-@router.get("/wallet/{customer_id}/balance")
-def balance(customer_id: int):
-    db = SessionLocal()
-    try:
-        w = _ensure_wallet(db, customer_id)
-        return {"customer_id": customer_id, "wallet_id": w[0], "balance": float(w[1]), "status": w[2]}
-    finally:
-        db.close()
+    bal = _load_balances()
+    key = str(req.customer_id)
+    new_balance = float(bal.get(key, 0.0)) + float(req.amount)
+    bal[key] = new_balance
+    _save_balances(bal)
 
-@router.post("/wallet/deposit")
-def deposit(payload: DepositReq, x_idempotency_key: str | None = Header(default=None)):
-    db = SessionLocal()
-    try:
-        w = _ensure_wallet(db, payload.customer_id)
-        txid = _deposit(db, w[0], float(payload.amount), payload.reason, x_idempotency_key, payload.by_user)
-        bal = db.execute(text("SELECT balance FROM wallet WHERE id=:w"), {"w": w[0]}).scalar()
-        return {"ok": True, "tx_id": txid, "balance": float(bal)}
-    finally:
-        db.close()
+    tx_id = f"WL{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+    entry = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
+        "kind": "credit",
+        "customer_id": req.customer_id,
+        "amount": float(req.amount),
+        "balance_after": new_balance,
+        "idempotency_key": Idempotency_Key,
+        "tx_id": tx_id,
+    }
+    _append_ledger(entry)
 
-@router.post("/wallet/apply-calc")
-def apply_calc(payload: ApplyCalcReq):
-    db = SessionLocal()
-    try:
-        w = _ensure_wallet(db, payload.customer_id)
-        bal = float(w[1] or 0.0)
-        total = db.execute(text("SELECT COALESCE(total, 0) FROM pos_order WHERE id=:o"), {"o": payload.order_id}).scalar() or 0.0
-        can = float(min(bal, total))
-        return {"order_id": payload.order_id, "customer_id": payload.customer_id, "balance": bal, "can_apply": can}
-    finally:
-        db.close()
+    resp = {"ok": True, "tx_id": tx_id, "customer_id": req.customer_id, "amount": float(req.amount), "balance": new_balance, "replay": False}
+    _idem_set(Idempotency_Key, resp)
+    return resp
 
-# Reporte diario muy simple (depósitos/redenciones por día)
-@reports.get("/wallet/daily")
-def wallet_daily(date_str: str | None = None):
-    db = SessionLocal()
-    try:
-        d = date.fromisoformat(date_str) if date_str else date.today()
-        start = f"{d} 00:00:00"; end = f"{d} 23:59:59"
-        row = db.execute(text("""
-            SELECT
-              SUM(CASE WHEN kind='deposit' THEN amount ELSE 0 END) AS deposits,
-              SUM(CASE WHEN kind='redeem' THEN amount ELSE 0 END) AS redeems
-            FROM wallet_tx
-            WHERE created_at BETWEEN :a AND :b
-        """), {"a": start, "b": end}).fetchone()
-        return {"date": str(d), "deposits": float(row[0] or 0.0), "redeems": float(row[1] or 0.0)}
-    finally:
-        db.close()
+@router.post("/wallet/debit", response_model=TxResp)
+def wallet_debit(
+    req: DebitReq,
+    Idempotency_Key: Optional[str] = Header(default=None, convert_underscores=True),
+):
+    # idempotent replay
+    cached = _idem_get(Idempotency_Key)
+    if cached:
+        return {**cached, "replay": True}
 
-# -------- Helpers para que POS/Pay pueda redimir de forma segura ----------
-def redeem_in_pos(db: Session, customer_id: int, amount: float, order_id: int, key: str | None, by_user: str = "demo"):
-    w = _ensure_wallet(db, customer_id)
-    return _redeem(db, w[0], float(amount), "pos-pay", order_id, key, by_user)
+    bal = _load_balances()
+    key = str(req.customer_id)
+    current = float(bal.get(key, 0.0))
+    amt = float(req.amount)
+    if amt > current + 1e-9:
+        raise HTTPException(status_code=409, detail="insufficient_funds")
+
+    new_balance = current - amt
+    bal[key] = new_balance
+    _save_balances(bal)
+
+    tx_id = f"WL{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+    entry = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
+        "kind": "debit",
+        "customer_id": req.customer_id,
+        "amount": amt,
+        "balance_after": new_balance,
+        "idempotency_key": Idempotency_Key,
+        "tx_id": tx_id,
+    }
+    _append_ledger(entry)
+
+    resp = {"ok": True, "tx_id": tx_id, "customer_id": req.customer_id, "amount": amt, "balance": new_balance, "replay": False}
+    _idem_set(Idempotency_Key, resp)
+    return resp

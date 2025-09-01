@@ -2,6 +2,12 @@ import asyncio, time, json
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+# Endpoints soportados y la clave de éxito esperada en el JSON
+ALLOW = {
+    "/pos/order/pay-discounted": "payment_id",
+    "/wallet/credit": "tx_id",
+}
+
 class _Cache:
     def __init__(self, ttl=3600, max_entries=2048):
         self.ttl = ttl
@@ -39,61 +45,91 @@ class _KeyedLocks:
         await lock.acquire()
         return lock
 
+def _drop_content_length(headers: dict) -> dict:
+    # Quita cualquier Content-Length (casing-insensitive)
+    return {k: v for k, v in headers.items() if k.lower() != "content-length"}
+
 _idem_cache = _Cache(ttl=3600)
 _keyed_locks = _KeyedLocks()
 
 class PayDiscountedIdempotency(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.method != "POST" or request.url.path != "/pos/order/pay-discounted":
+        if request.method != "POST":
+            return await call_next(request)
+
+        path = request.url.path
+        success_key = ALLOW.get(path)
+        if not success_key:
             return await call_next(request)
 
         idem_key = request.headers.get("Idempotency-Key") or request.headers.get("IdempotencyKey")
         if not idem_key:
             return await call_next(request)
 
-        cache_key = f"{request.method}:{request.url.path}:{idem_key}"
+        cache_key = f"{request.method}:{path}:{idem_key}"
 
+        # 1) Replay inmediato si está cacheado
         cached = await _idem_cache.get(cache_key)
         if cached:
-            headers = dict(cached["headers"])
+            body_bytes = cached["body"]
+            try:
+                js = json.loads(body_bytes.decode("utf-8"))
+                if isinstance(js, dict):
+                    js.setdefault("replay", True)
+                    body_bytes = json.dumps(js).encode("utf-8")
+            except Exception:
+                pass
+            headers = _drop_content_length(dict(cached["headers"]))
             headers["Idempotent-Replay"] = "true"
             return Response(
-                content=cached["body"],
+                content=body_bytes,
                 status_code=cached["status"],
                 media_type=cached["media_type"],
                 headers=headers,
             )
 
+        # 2) Sección crítica por clave
         lock = await _keyed_locks.acquire(cache_key)
         try:
             cached = await _idem_cache.get(cache_key)
             if cached:
-                headers = dict(cached["headers"])
+                body_bytes = cached["body"]
+                try:
+                    js = json.loads(body_bytes.decode("utf-8"))
+                    if isinstance(js, dict):
+                        js.setdefault("replay", True)
+                        body_bytes = json.dumps(js).encode("utf-8")
+                except Exception:
+                    pass
+                headers = _drop_content_length(dict(cached["headers"]))
                 headers["Idempotent-Replay"] = "true"
                 return Response(
-                    content=cached["body"],
+                    content=body_bytes,
                     status_code=cached["status"],
                     media_type=cached["media_type"],
                     headers=headers,
                 )
 
+            # 3) Procesar y capturar body de la respuesta real
             response = await call_next(request)
             body_bytes = b""
             async for chunk in response.body_iterator:
                 body_bytes += chunk
 
+            headers = _drop_content_length(dict(response.headers))
             new_resp = Response(
                 content=body_bytes,
                 status_code=response.status_code,
                 media_type=response.media_type,
-                headers=dict(response.headers),
+                headers=headers,
             )
 
+            # 4) Cachear solo si 200 y contiene la clave de éxito
             should_cache = response.status_code == 200
             if should_cache:
                 try:
                     js = json.loads(body_bytes.decode("utf-8"))
-                    should_cache = "payment_id" in js
+                    should_cache = isinstance(js, dict) and (success_key in js)
                 except Exception:
                     should_cache = False
 

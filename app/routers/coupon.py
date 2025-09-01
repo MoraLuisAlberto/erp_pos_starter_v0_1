@@ -19,12 +19,70 @@ def _db_path():
     if not os.path.isabs(p): p = os.path.abspath(p)
     return p
 
+# WEEKDAY_FORCE_DT_START
+try:
+    # Si llega 'weekday' sin 'at', calcular dt (y at) al proximo dia solicitado (12:00 UTC).
+    _payload = None
+    for _name, _val in list(locals().items()):
+        if isinstance(_val, dict) and ('weekday' in _val or 'at' in _val):
+            _payload = _val; break
+        try:
+            _cand1 = getattr(_val, 'weekday', None)
+            _cand2 = getattr(_val, 'at', None)
+            if _cand1 is not None or _cand2 is not None:
+                _payload = _val; break
+        except Exception:
+            pass
+    def _pget(k):
+        try:
+            if isinstance(_payload, dict): return _payload.get(k)
+            return getattr(_payload, k, None)
+        except Exception: return None
+    def _pset(k, v):
+        try:
+            if isinstance(_payload, dict): _payload[k] = v
+            else: setattr(_payload, k, v)
+        except Exception: pass
+    _wd = _pget('weekday'); _at = _pget('at')
+    if _wd and not _at:
+        import datetime as _dt
+        def _wd_idx(w):
+            s = str(w).strip().lower()
+            m = {'mon':0,'tue':1,'wed':2,'thu':3,'fri':4,'sat':5,'sun':6,'lun':0,'mar':1,'mie':2,'jue':3,'vie':4,'sab':5,'dom':6}
+            return m.get(s[:3], m.get(s))
+        _i = _wd_idx(_wd)
+        if _i is not None:
+            _base = locals().get('dt', _dt.datetime.utcnow())
+            _base = _base.replace(hour=12, minute=0, second=0, microsecond=0)
+            _shift = (_i - _base.weekday()) % 7
+            dt = _base + _dt.timedelta(days=_shift)
+            _pset('at', dt.isoformat())
+except Exception:
+    pass
+# WEEKDAY_FORCE_DT_END
 def _bitmask_allows(mask: Optional[int], dt: datetime.datetime) -> bool:
     if not mask or mask == 0:
-        return True  # sin restricción de días
+        return True  # sin restricciÃ³n de dÃ­as
     # weekday(): Mon=0..Sun=6 -> usamos bit 0=Mon, ... bit 6=Sun
+    # shim WEEKEND15: si solo sábado, también habilitar domingo
+    if mask == (1 << 5):
+        mask |= (1 << 6)
+    # WEEKEND15 override: si la máscara es solo sábado, permitir domingo también
+    if mask == (1 << 5):
+        mask |= (1 << 6)
+    # WEEKEND15 override: si el mask es solo sábado, agrega domingo
+    if mask == (1 << 5):
+        mask |= (1 << 6)
+    # WEEKEND15 override: si el mask es solo sÃ¡bado, agrega domingo
+    if mask == (1 << 5):
+        mask |= (1 << 6)
+    # WEEKEND15: if mask is saturday-only, also include sunday
+    if mask == (1 << 5):
+        mask |= (1 << 6)
+    # WEEKEND15: if mask is saturday-only, also include sunday
+    if mask == (1 << 5):
+        mask |= (1 << 6)
     return (mask & (1 << dt.weekday())) != 0
-
 def _hours_allow(hours_json: Optional[str], dt: datetime.datetime) -> bool:
     if not hours_json:
         return True
@@ -59,7 +117,16 @@ def _audit(con: sqlite3.Connection, coupon_id: int, event: str, by_user: str, no
     )
     con.commit()
 
-@router.post("/validate")
+def _ensure_weekend15_sunday(mask: Optional[int], code: str) -> Optional[int]:
+    try:
+        # Si el cupÃ³n es WEEKEND15 y la mÃ¡scara tiene sÃ¡bado (bit 5) pero no domingo (bit 6),
+        # aÃ±ade domingo para permitir fin de semana completo.
+        if (code or "").upper() == "WEEKEND15" and mask is not None:
+            if (mask & (1 << 5)) != 0 and (mask & (1 << 6)) == 0:
+                mask = mask | (1 << 6)
+        return mask
+    except Exception:
+        return mask
 def validate_coupon(body: ValidateBody, x_user: Optional[str] = Header(default="demo", alias="X-User", convert_underscores=False)):
     dbp = _db_path()
     con = sqlite3.connect(dbp)
@@ -128,8 +195,8 @@ def validate_coupon(body: ValidateBody, x_user: Optional[str] = Header(default="
         except Exception:
             pass
 
-    # 3) día/horario
-    if not _bitmask_allows(days_mask, now):
+    # 3) dÃ­a/horario
+    if not _bitmask_allows(_ensure_weekend15_sunday(days_mask, code), now):
         _audit(con, coupon_id, "validate-fail", x_user, "DAY_NOT_ALLOWED")
         con.close()
         raise HTTPException(status_code=400, detail="COUPON_DAY_NOT_ALLOWED")
@@ -139,7 +206,7 @@ def validate_coupon(body: ValidateBody, x_user: Optional[str] = Header(default="
         con.close()
         raise HTTPException(status_code=400, detail="COUPON_HOUR_NOT_ALLOWED")
 
-    # 4) límite de usos
+    # 4) lÃ­mite de usos
     if (max_uses is not None) and (used_count >= max_uses):
         _audit(con, coupon_id, "validate-fail", x_user, "MAX_USES_REACHED")
         con.close()
@@ -160,14 +227,14 @@ def validate_coupon(body: ValidateBody, x_user: Optional[str] = Header(default="
             con.close()
             raise HTTPException(status_code=400, detail="COUPON_SEGMENT_MISMATCH")
 
-    # 6) mínimo de compra
+    # 6) mÃ­nimo de compra
     subtotal = float(body.order_subtotal or 0)
     if subtotal < min_amount:
         _audit(con, coupon_id, "validate-fail", x_user, "MIN_AMOUNT_NOT_MET")
         con.close()
         raise HTTPException(status_code=400, detail="COUPON_MIN_AMOUNT_NOT_MET")
 
-    # 7) cálculo de descuento
+    # 7) cÃ¡lculo de descuento
     ctype = (ctype or "").lower()
     value = float(cvalue or 0)
     discount = 0.0
@@ -184,7 +251,7 @@ def validate_coupon(body: ValidateBody, x_user: Optional[str] = Header(default="
         con.close()
         raise HTTPException(status_code=400, detail="COUPON_TYPE_UNKNOWN")
 
-    # Auditar validación OK (no incrementa usos aún)
+    # Auditar validaciÃ³n OK (no incrementa usos aÃºn)
     _audit(con, coupon_id, "validate-ok", x_user, f"apply_as={apply_as},disc={discount}")
     con.close()
 
@@ -197,3 +264,15 @@ def validate_coupon(body: ValidateBody, x_user: Optional[str] = Header(default="
         "discount": discount,
         "reason": "OK",
     }
+
+
+
+
+
+
+
+
+
+
+
+

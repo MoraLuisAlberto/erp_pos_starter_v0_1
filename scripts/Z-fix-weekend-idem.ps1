@@ -1,130 +1,57 @@
-$ErrorActionPreference = "Stop"
+# scripts\Z-fix-weekend15.ps1
+$ErrorActionPreference = 'Stop'
 
-# Rutas
-$idemPath   = "app\middleware\idempotency.py"
-$mainPath   = "app\main.py"
 $couponPath = "app\routers\coupon.py"
+if (!(Test-Path $couponPath)) {
+  Write-Error "No existe $couponPath"
+  exit 1
+}
 
-# Asegurar carpeta del middleware
-New-Item -ItemType Directory -Force -Path (Split-Path $idemPath -Parent) | Out-Null
+# Backup
+$bak = "$couponPath.bak-$(Get-Date -Format yyyyMMdd_HHmmss)"
+Copy-Item $couponPath $bak
+Write-Host "Backup creado: $bak"
 
-# 1) Escribir/actualizar el middleware de idempotencia (con lock por clave)
-$py = @'
-import asyncio, time, json
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+# Leer fuente
+$src = Get-Content $couponPath -Raw
+$changed = 0
 
-class _Cache:
-    def __init__(self, ttl=3600, max_entries=2048):
-        self.ttl = ttl
-        self.max_entries = max_entries
-        self._store = {}
-        self._lock = asyncio.Lock()
+function Apply-Rep {
+  param([string]$pattern, [string]$replacement)
+  $global:src2 = [regex]::Replace($global:src, $pattern, $replacement, 'IgnoreCase')
+  if ($global:src2 -ne $global:src) {
+    $global:src = $global:src2
+    $script:changed++
+  }
+}
 
-    async def get(self, key):
-        async with self._lock:
-            item = self._store.get(key)
-            if not item:
-                return None
-            if item["exp"] < time.time():
-                self._store.pop(key, None)
-                return None
-            return item
+# 1) Igualdades duras: weekday == "sat"
+Apply-Rep '\bweekday\s*==\s*([''"])sat\1', 'weekday in ("sat","sun")'
 
-    async def set(self, key, val):
-        async with self._lock:
-            if len(self._store) >= self.max_entries:
-                self._store.pop(next(iter(self._store)))
-            self._store[key] = val
+# 2) Colecciones con sólo "sat": [...], (...), {...}
+Apply-Rep 'weekday\s+in\s*\[\s*([''"])sat\1\s*\]', 'weekday in ("sat","sun")'
+Apply-Rep 'weekday\s+in\s*\(\s*([''"])sat\1\s*(?:,\s*)?\)', 'weekday in ("sat","sun")'
+Apply-Rep 'weekday\s+in\s*\{\s*([''"])sat\1\s*\}', 'weekday in ("sat","sun")'
 
-class _KeyedLocks:
-    def __init__(self):
-        self._locks = {}
-        self._guard = asyncio.Lock()
+# 3) Dentro de la definición de la regla WEEKEND15: weekdays: ["sat"]
+# (relajado: busca el literal WEEKEND15 antes de weekdays)
+Apply-Rep '(WEEKEND15.*?weekdays\s*:\s*)\[\s*([''"])sat\2\s*\]' , '$1["sat","sun"]'
 
-    async def acquire(self, key):
-        async with self._guard:
-            lock = self._locks.get(key)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._locks[key] = lock
-        await lock.acquire()
-        return lock
+if ($changed -gt 0) {
+  Set-Content -Path $couponPath -Value $src -Encoding UTF8
+  Write-Host "✅ coupon.py actualizado ($changed cambio(s)). Probando compilación..."
+} else {
+  Write-Host "• No se detectaron patrones a corregir (quizá ya estaba bien). Probando compilación..."
+}
 
-_idem_cache = _Cache(ttl=3600)
-_keyed_locks = _KeyedLocks()
+# 4) Verificación sintáctica
+try {
+  .\.venv\Scripts\python.exe -m py_compile $couponPath
+  Write-Host "✅ Sintaxis OK."
+} catch {
+  Write-Warning "❌ Error de sintaxis; restaurando backup..."
+  Copy-Item $bak $couponPath -Force
+  exit 1
+}
 
-class PayDiscountedIdempotency(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        if request.method != "POST" or request.url.path != "/pos/order/pay-discounted":
-            return await call_next(request)
-
-        idem_key = request.headers.get("Idempotency-Key") or request.headers.get("IdempotencyKey")
-        if not idem_key:
-            return await call_next(request)
-
-        cache_key = f"{request.method}:{request.url.path}:{idem_key}"
-
-        # Replay inmediato si ya estaba en caché
-        cached = await _idem_cache.get(cache_key)
-        if cached:
-            headers = dict(cached["headers"])
-            headers["Idempotent-Replay"] = "true"
-            return Response(
-                content=cached["body"],
-                status_code=cached["status"],
-                media_type=cached["media_type"],
-                headers=headers,
-            )
-
-        # Sección crítica por clave
-        lock = await _keyed_locks.acquire(cache_key)
-        try:
-            cached = await _idem_cache.get(cache_key)
-            if cached:
-                headers = dict(cached["headers"])
-                headers["Idempotent-Replay"] = "true"
-                return Response(
-                    content=cached["body"],
-                    status_code=cached["status"],
-                    media_type=cached["media_type"],
-                    headers=headers,
-                )
-
-            # Procesar y capturar body
-            response = await call_next(request)
-            body_bytes = b""
-            async for chunk in response.body_iterator:
-                body_bytes += chunk
-
-            new_resp = Response(
-                content=body_bytes,
-                status_code=response.status_code,
-                media_type=response.media_type,
-                headers=dict(response.headers),
-            )
-
-            # Cachear solo 200 con "payment_id"
-            should_cache = response.status_code == 200
-            if should_cache:
-                try:
-                    js = json.loads(body_bytes.decode("utf-8"))
-                    should_cache = "payment_id" in js
-                except Exception:
-                    should_cache = False
-
-            if should_cache:
-                await _idem_cache.set(cache_key, {
-                    "status": new_resp.status_code,
-                    "headers": dict(new_resp.headers),
-                    "media_type": new_resp.media_type,
-                    "body": body_bytes,
-                    "exp": time.time() + 3600,
-                })
-
-            return new_resp
-        finally:
-            lock.release()
-
-def install_idempotency(app):
-    app.add_middleware(PayDiscountedIdempotency)
+Write-Host "Listo."
