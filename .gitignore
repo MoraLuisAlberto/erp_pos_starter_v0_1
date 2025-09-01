@@ -9,3 +9,7 @@ scripts/logs/
 *.bak-*
 app/routers/*.bak*
 app/**/*.bak*
+.venv/
+data/*.log
+scripts/logs/
+*.db
