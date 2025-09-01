@@ -1,13 +1,11 @@
-.venv/
-__pycache__/
-*.pyc
-data/*.json
-data/*.jsonl
-.venv/
-__pycache__/
-*.pyc
-data/*.json
-data/*.jsonl
-.pytest_cache/
-.mypy_cache/
-ruff_cache/
+# DB y logs
+*.db
+data/*.log
+scripts/logs/
+
+# backups y autosaves
+*.bak
+*.bak.*
+*.bak-*
+app/routers/*.bak*
+app/**/*.bak*
