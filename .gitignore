@@ -1,23 +1,13 @@
-# DB y logs
-*.db
-data/*.log
-scripts/logs/
+# runtime / estado local
+erp.db
 
-# backups y autosaves
-*.bak
-*.bak.*
-*.bak-*
-app/routers/*.bak*
-app/**/*.bak*
-.venv/
-data/*.log
-scripts/logs/
-*.db
+# entornos y cachés
 .venv/
 __pycache__/
-*.pyc
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
+*.pyc
+
+# backups y logs locales
+*.bak*
 data/*.log
 scripts/logs/
