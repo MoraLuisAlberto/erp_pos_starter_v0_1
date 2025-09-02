@@ -1,11 +1,14 @@
-from sqlalchemy import text
 from fastapi import APIRouter
+from sqlalchemy import text
+
 from ..db import SessionLocal
 
 router = APIRouter()
 
-def _has_col(rows, name:str)->bool:
+
+def _has_col(rows, name: str) -> bool:
     return any(r[1] == name for r in rows)
+
 
 @router.get("/stats/today")
 def stats_today():
@@ -17,7 +20,11 @@ def stats_today():
         has_pp_created = _has_col(pp_cols, "created_at") or _has_col(pp_cols, "at")
         has_po_paid = _has_col(po_cols, "paid_at")
 
-        date_col = "created_at" if _has_col(pp_cols, "created_at") else ("at" if _has_col(pp_cols, "at") else None)
+        date_col = (
+            "created_at"
+            if _has_col(pp_cols, "created_at")
+            else ("at" if _has_col(pp_cols, "at") else None)
+        )
         where_date = ""
         date_filter_applied = False
         if has_pp_created and date_col:
@@ -54,9 +61,9 @@ def stats_today():
             "date": s.execute(text("SELECT DATE('now','localtime')")).scalar(),
             "date_filter_applied": date_filter_applied,
             "sales_count": cnt,
-            "gross_total": round(total,2),
+            "gross_total": round(total, 2),
             "avg_ticket": avg_ticket,
-            "by_method": by_method
+            "by_method": by_method,
         }
     finally:
         s.close()

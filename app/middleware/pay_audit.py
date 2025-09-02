@@ -1,14 +1,16 @@
 from __future__ import annotations
-import json
-import threading
-from datetime import datetime, timezone
-from pathlib import Path
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import threading
+
 from starlette.concurrency import iterate_in_threadpool
+from starlette.middleware.base import BaseHTTPMiddleware
 
 AUDIT_FILE = Path(__file__).resolve().parents[2] / "data" / "coupons_audit.jsonl"
 _LOCK = threading.Lock()
+
 
 def _append_jsonl(obj: dict) -> None:
     AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -17,11 +19,12 @@ def _append_jsonl(obj: dict) -> None:
         with open(AUDIT_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
 
+
 def _dedup_exists(payment_id=None, key=None) -> bool:
     if not AUDIT_FILE.exists():
         return False
     try:
-        with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+        with open(AUDIT_FILE, encoding="utf-8") as f:
             for ln in f:
                 try:
                     ev = json.loads(ln)
@@ -36,6 +39,7 @@ def _dedup_exists(payment_id=None, key=None) -> bool:
     except Exception:
         return False
     return False
+
 
 class PayAuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -64,7 +68,9 @@ class PayAuditMiddleware(BaseHTTPMiddleware):
             base_total = order.get("subtotal") or order.get("total")
             splits = data.get("splits")
 
-            key = request.headers.get("x-idempotency-key") or request.headers.get("X-Idempotency-Key")
+            key = request.headers.get("x-idempotency-key") or request.headers.get(
+                "X-Idempotency-Key"
+            )
 
             if not _dedup_exists(payment_id=payment_id, key=key):
                 ev = {
@@ -78,11 +84,12 @@ class PayAuditMiddleware(BaseHTTPMiddleware):
                     "base_total": base_total,
                     "paid_total": amount,
                     "path": path,
-                    "method": "auto"
+                    "method": "auto",
                 }
                 _append_jsonl(ev)
         finally:
             return response
+
 
 def install_pay_audit(app):
     app.add_middleware(PayAuditMiddleware)

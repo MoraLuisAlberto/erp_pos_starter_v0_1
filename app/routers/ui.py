@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 
 router = APIRouter()
 
+
 @router.get("/", response_class=HTMLResponse)
 def home():
     return """<!doctype html>
@@ -133,9 +134,9 @@ async function createDraft(){
     const r = await fetch(`${base}/pos/order/draft`, {
       method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)
     });
-    if(!r.ok){ 
-      const t = await r.text(); 
-      throw new Error("draft failed: "+r.status+" -> "+t); 
+    if(!r.ok){
+      const t = await r.text();
+      throw new Error("draft failed: "+r.status+" -> "+t);
     }
     const data = await r.json();
     ORDER = data;
@@ -202,9 +203,9 @@ async function pay(){
       headers: { "Content-Type": "application/json", "x-idempotency-key": key },
       body: JSON.stringify({ order_id: ORDER.order_id, splits })
     });
-    if(!r.ok){ 
+    if(!r.ok){
       const t = await r.text();
-      throw new Error("pay failed: "+r.status+" -> "+t); 
+      throw new Error("pay failed: "+r.status+" -> "+t);
     }
     const data = await r.json();
     log(data, "ok");

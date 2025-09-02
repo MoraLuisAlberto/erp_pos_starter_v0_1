@@ -1,6 +1,7 @@
 import os
+
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Base para modelos (lo importa app.main)
 Base = declarative_base()
@@ -20,6 +21,7 @@ engine = create_engine(
     pool_pre_ping=True,
 )
 
+
 # PRAGMAs por conexión
 @event.listens_for(engine, "connect")
 def _on_connect(dbapi_conn, _):
@@ -32,12 +34,14 @@ def _on_connect(dbapi_conn, _):
     finally:
         cur.close()
 
+
 # Forzar WAL una vez (persistente en el archivo)
 with engine.connect() as conn:
     conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
     conn.exec_driver_sql("PRAGMA foreign_keys=ON;")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 
 # Dependencia FastAPI
 def get_db():

@@ -69,7 +69,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -212,7 +212,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -220,9 +220,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -243,8 +243,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -895,7 +895,7 @@ function POST-WR([string], {
     try { .ctype  = .Headers["Content-Type"] } catch {}
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -1039,7 +1039,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -1047,9 +1047,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error ("session/open failed: {0} {1}" -f .status, .text); exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -1070,8 +1070,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -1086,7 +1086,7 @@ Write-Host "-- Setup: draft"
   "price_list_id": 1
 }
 if (-not .ok) { Write-Error ("draft failed: {0} {1}" -f .status, .text); exit 3 }
- = ;  = 
+ = ;  =
 try {
    = .json.order_id; if (-not ) {  = .json.id }
      = .json.total
@@ -1166,7 +1166,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -1309,7 +1309,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -1317,9 +1317,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -1340,8 +1340,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -2036,7 +2036,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -2179,7 +2179,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -2187,9 +2187,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -2210,8 +2210,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -2906,7 +2906,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -3049,7 +3049,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -3057,9 +3057,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -3080,8 +3080,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -3776,7 +3776,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -3919,7 +3919,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -3927,9 +3927,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -3950,8 +3950,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -4646,7 +4646,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -4789,7 +4789,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -4797,9 +4797,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -4820,8 +4820,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -5516,7 +5516,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -5659,7 +5659,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -5667,9 +5667,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -5690,8 +5690,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -6386,7 +6386,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -6529,7 +6529,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -6537,9 +6537,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -6560,8 +6560,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -7256,7 +7256,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -7399,7 +7399,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -7407,9 +7407,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -7430,8 +7430,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -8126,7 +8126,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -8269,7 +8269,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -8277,9 +8277,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -8300,8 +8300,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -8996,7 +8996,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -9139,7 +9139,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -9147,9 +9147,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -9170,8 +9170,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -9866,7 +9866,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -10009,7 +10009,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -10017,9 +10017,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -10040,8 +10040,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -10736,7 +10736,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -10879,7 +10879,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -10887,9 +10887,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -10910,8 +10910,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }
@@ -11606,7 +11606,7 @@ function POST-WR([string], {
     .status = .StatusCode.value__
     .text = .Content
     try { .json = .Content | ConvertFrom-Json } catch {}
-    return 
+    return
   } catch {
      = .Exception.Response
     if () {
@@ -11749,7 +11749,7 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
     } else {
       .text = .Exception.Message
     }
-    return 
+    return
   }
 }
 
@@ -11757,9 +11757,9 @@ app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
 Write-Host ""
 Write-Host "-- Setup: open session"
  = @{ pos_id=1; cashier_id=1; opening_cash=0 }
- = POST-WR "/session/open" 
+ = POST-WR "/session/open"
 if (-not .ok) { Write-Error "session/open failed:  "; exit 1 }
- = 
+ =
 try {
    = .json.sid
   if (-not ) {  = .json.session_id }
@@ -11780,8 +11780,8 @@ Write-Host "-- Setup: draft"
   ],
   "price_list_id": 1
 } = @{
-  customer_id   = 
-  session_id    = 
+  customer_id   =
+  session_id    =
   price_list_id = 1
   items         = @(@{ product_id=1; qty=1; unit_price=[decimal]; price=[decimal] })
 }

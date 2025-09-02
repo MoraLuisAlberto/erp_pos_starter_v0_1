@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy.orm import Session as OrmSession
-from sqlalchemy import text
 from typing import Any, Dict
+
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import text
+from sqlalchemy.orm import Session as OrmSession
+
 from app.db import get_db
 
 # OJO: este router se monta con prefix="/pos" en main.py ⇒ rutas reales: /pos/session/*
 router = APIRouter(prefix="/session", tags=["pos-session"])
+
 
 def _row_to_dict(row) -> Dict[str, Any]:
     if row is None:
@@ -13,6 +16,7 @@ def _row_to_dict(row) -> Dict[str, Any]:
     if hasattr(row, "_mapping"):
         return dict(row._mapping)
     return dict(row)
+
 
 # ---------- OPEN ----------
 @router.post("/open")
@@ -27,11 +31,17 @@ def open_session(payload: Dict[str, Any] = Body(...), db: OrmSession = Depends(g
     opening_cash = float(payload.get("opening_cash") or 0)
 
     db.execute(text("CREATE TABLE IF NOT EXISTS pos_store (id INTEGER PRIMARY KEY, name TEXT)"))
-    db.execute(text("CREATE TABLE IF NOT EXISTS pos_terminal (id INTEGER PRIMARY KEY, store_id INTEGER, name TEXT)"))
+    db.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS pos_terminal (id INTEGER PRIMARY KEY, store_id INTEGER, name TEXT)"
+        )
+    )
     db.execute(text("INSERT OR IGNORE INTO pos_store(id,name) VALUES (1,'Main')"))
     db.execute(text("INSERT OR IGNORE INTO pos_terminal(id,store_id,name) VALUES (1,1,'T1')"))
 
-    db.execute(text("""
+    db.execute(
+        text(
+            """
         INSERT INTO pos_session(
           store_id, terminal_id, user_open_id, opened_at, status,
           user_close_id, closed_at, idempotency_open, idempotency_close,
@@ -45,23 +55,36 @@ def open_session(payload: Dict[str, Any] = Body(...), db: OrmSession = Depends(g
           :expected_cash, 0, 0, 0, 0,
           NULL, NULL
         )
-    """), {
-        "store_id": store_id,
-        "terminal_id": terminal_id,
-        "user_open_id": user_open_id,
-        "opened_by": opened_by,
-        "expected_cash": opening_cash,
-    })
+    """
+        ),
+        {
+            "store_id": store_id,
+            "terminal_id": terminal_id,
+            "user_open_id": user_open_id,
+            "opened_by": opened_by,
+            "expected_cash": opening_cash,
+        },
+    )
     db.commit()
 
-    row = db.execute(text("""
+    row = db.execute(
+        text(
+            """
         SELECT id, status, opened_by, opened_at FROM pos_session
         WHERE status='open' ORDER BY id DESC LIMIT 1
-    """)).fetchone()
+    """
+        )
+    ).fetchone()
     if not row:
         raise HTTPException(status_code=500, detail="OPEN_FAILED")
     r = _row_to_dict(row)
-    return {"id": r["id"], "status": r["status"], "opened_by": r["opened_by"], "opened_at": r["opened_at"]}
+    return {
+        "id": r["id"],
+        "status": r["status"],
+        "opened_by": r["opened_by"],
+        "opened_at": r["opened_at"],
+    }
+
 
 # ---------- CASH COUNT ----------
 @router.post("/cash-count")
@@ -92,15 +115,22 @@ def cash_count(payload: Dict[str, Any] = Body(...), db: OrmSession = Depends(get
         raise HTTPException(status_code=422, detail="total/amount must be number")
     by_user = str(payload.get("by_user") or "demo")
 
-    ses = db.execute(text("SELECT id, status FROM pos_session WHERE id=:sid"), {"sid": sid}).fetchone()
+    ses = db.execute(
+        text("SELECT id, status FROM pos_session WHERE id=:sid"), {"sid": sid}
+    ).fetchone()
     if not ses:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
     try:
-        db.execute(text("""
+        db.execute(
+            text(
+                """
             INSERT INTO cash_count (session_id, stage, created_at, by_user, kind, total, details_json, at)
             VALUES (:sid, :stage, CURRENT_TIMESTAMP, :by_user, :kind, :total, '[]', CURRENT_TIMESTAMP)
-        """), {"sid": sid, "stage": stage, "by_user": by_user, "kind": kind, "total": total})
+        """
+            ),
+            {"sid": sid, "stage": stage, "by_user": by_user, "kind": kind, "total": total},
+        )
         db.commit()
     except Exception:
         db.rollback()
@@ -108,44 +138,70 @@ def cash_count(payload: Dict[str, Any] = Body(...), db: OrmSession = Depends(get
 
     return {"session_id": sid, "stage": stage, "kind": kind, "amount": total, "total": total}
 
+
 # ---------- RESUME ----------
 @router.get("/{sid}/resume")
 def resume_session(sid: int, db: OrmSession = Depends(get_db)):
-    row = db.execute(text("""
+    row = db.execute(
+        text(
+            """
         SELECT id, status, opened_by, opened_at, closed_by, closed_at,
                expected_cash, counted_pre, counted_final, diff_cash, tolerance
         FROM pos_session WHERE id=:sid
-    """), {"sid": sid}).fetchone()
+    """
+        ),
+        {"sid": sid},
+    ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
     s = _row_to_dict(row)
 
-    pre_total = db.execute(text("""
+    pre_total = db.execute(
+        text(
+            """
         SELECT total FROM cash_count
         WHERE session_id=:sid AND stage='pre'
         ORDER BY id DESC LIMIT 1
-    """), {"sid": sid}).scalar()
-    fin_total = db.execute(text("""
+    """
+        ),
+        {"sid": sid},
+    ).scalar()
+    fin_total = db.execute(
+        text(
+            """
         SELECT total FROM cash_count
         WHERE session_id=:sid AND stage='final'
         ORDER BY id DESC LIMIT 1
-    """), {"sid": sid}).scalar()
+    """
+        ),
+        {"sid": sid},
+    ).scalar()
 
     counted_pre = float(pre_total if pre_total is not None else s.get("counted_pre") or 0.0)
     counted_final = float(fin_total if fin_total is not None else s.get("counted_final") or 0.0)
     expected_cash = float(s.get("expected_cash") or 0.0)
     diff = (counted_final or 0.0) - expected_cash
 
-    pre_list = db.execute(text("""
+    pre_list = db.execute(
+        text(
+            """
         SELECT id, total, by_user, created_at FROM cash_count
         WHERE session_id=:sid AND stage='pre'
         ORDER BY id DESC LIMIT 5
-    """), {"sid": sid}).fetchall()
-    fin_list = db.execute(text("""
+    """
+        ),
+        {"sid": sid},
+    ).fetchall()
+    fin_list = db.execute(
+        text(
+            """
         SELECT id, total, by_user, created_at FROM cash_count
         WHERE session_id=:sid AND stage='final'
         ORDER BY id DESC LIMIT 5
-    """), {"sid": sid}).fetchall()
+    """
+        ),
+        {"sid": sid},
+    ).fetchall()
 
     to_simple = lambda rows: [
         {"id": r[0], "total": r[1], "by_user": r[2], "created_at": r[3]} for r in rows
@@ -166,6 +222,7 @@ def resume_session(sid: int, db: OrmSession = Depends(get_db)):
         "pre_count": to_simple(pre_list),
         "final_count": to_simple(fin_list),
     }
+
 
 # ---------- CLOSE (idempotente) ----------
 @router.post("/close")
@@ -192,9 +249,14 @@ def close_session(payload: Dict[str, Any] = Body(...), db: OrmSession = Depends(
         except Exception:
             raise HTTPException(status_code=422, detail="total/amount must be number")
 
-    ses = db.execute(text("""
+    ses = db.execute(
+        text(
+            """
         SELECT id, status, expected_cash, counted_pre, counted_final FROM pos_session WHERE id=:sid
-    """), {"sid": sid}).fetchone()
+    """
+        ),
+        {"sid": sid},
+    ).fetchone()
     if not ses:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
     sdict = _row_to_dict(ses)
@@ -205,27 +267,49 @@ def close_session(payload: Dict[str, Any] = Body(...), db: OrmSession = Depends(
 
     # Si nos pasaron total, registrar cash_count final
     if maybe_total is not None:
-        db.execute(text("""
+        db.execute(
+            text(
+                """
             INSERT INTO cash_count (session_id, stage, created_at, by_user, kind, total, details_json, at)
             VALUES (:sid, 'final', CURRENT_TIMESTAMP, :by_user, 'final', :total, '[]', CURRENT_TIMESTAMP)
-        """), {"sid": sid, "by_user": by_user, "total": maybe_total})
+        """
+            ),
+            {"sid": sid, "by_user": by_user, "total": maybe_total},
+        )
 
     # Lee expected y final para calcular diff
-    expected = db.execute(text("SELECT expected_cash FROM pos_session WHERE id=:sid"), {"sid": sid}).scalar() or 0.0
-    final_total = db.execute(text("""
+    expected = (
+        db.execute(
+            text("SELECT expected_cash FROM pos_session WHERE id=:sid"), {"sid": sid}
+        ).scalar()
+        or 0.0
+    )
+    final_total = db.execute(
+        text(
+            """
         SELECT total FROM cash_count WHERE session_id=:sid AND stage='final'
         ORDER BY id DESC LIMIT 1
-    """), {"sid": sid}).scalar()
-    counted_final = float(final_total if final_total is not None else sdict.get("counted_final") or 0.0)
+    """
+        ),
+        {"sid": sid},
+    ).scalar()
+    counted_final = float(
+        final_total if final_total is not None else sdict.get("counted_final") or 0.0
+    )
     diff = counted_final - float(expected)
 
     # Cierra
-    db.execute(text("""
+    db.execute(
+        text(
+            """
         UPDATE pos_session
         SET status='closed', closed_by=:by_user, closed_at=CURRENT_TIMESTAMP,
             counted_final=:counted_final, diff_cash=:diff
         WHERE id=:sid
-    """), {"sid": sid, "by_user": by_user, "counted_final": counted_final, "diff": diff})
+    """
+        ),
+        {"sid": sid, "by_user": by_user, "counted_final": counted_final, "diff": diff},
+    )
     db.commit()
 
     # Devuelve el resumen (incluye listas de conteos)

@@ -1,34 +1,43 @@
-import os, sqlite3
+import os
+import sqlite3
+
 from app.db import engine
 
 db_path = engine.url.database
 if not os.path.isabs(db_path):
     db_path = os.path.abspath(db_path)
 
-conn = sqlite3.connect(db_path); cur = conn.cursor()
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
+
 
 def table_exists(name):
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
     return cur.fetchone() is not None
 
+
 def cols(name):
     cur.execute(f"PRAGMA table_info('{name}')")
     return [r[1] for r in cur.fetchall()]
+
 
 def ensure_col(table, col, decl):
     c = cols(table)
     if col not in c:
         cur.execute(f"ALTER TABLE {table} ADD COLUMN {decl}")
 
+
 # 1) Tabla store (básica)
 if not table_exists("store"):
-    cur.execute("""
+    cur.execute(
+        """
         CREATE TABLE store(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code VARCHAR(40) UNIQUE,
             name VARCHAR(120) NOT NULL
         )
-    """)
+    """
+    )
 # asegurar tienda por defecto
 cur.execute("SELECT id FROM store ORDER BY id LIMIT 1")
 row = cur.fetchone()
@@ -46,7 +55,8 @@ if table_exists("pos_session"):
     cur.execute("UPDATE pos_session SET store_id=? WHERE store_id IS NULL", (default_store_id,))
 else:
     # si no existiera, la crea completa con store_id
-    cur.execute("""
+    cur.execute(
+        """
     CREATE TABLE pos_session (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         status VARCHAR(20),
@@ -64,8 +74,13 @@ else:
         idem_close VARCHAR(80),
         store_id INTEGER
     )
-    """)
-    cur.execute("INSERT INTO pos_session(status,opened_by,store_id) VALUES('open','demo',?)", (default_store_id,))
+    """
+    )
+    cur.execute(
+        "INSERT INTO pos_session(status,opened_by,store_id) VALUES('open','demo',?)",
+        (default_store_id,),
+    )
 
-conn.commit(); conn.close()
+conn.commit()
+conn.close()
 print(default_store_id)

@@ -1,4 +1,6 @@
-import sqlite3, os
+import os
+import sqlite3
+
 from app.db import engine
 
 db = engine.url.database

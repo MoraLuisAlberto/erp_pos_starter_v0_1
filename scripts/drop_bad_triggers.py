@@ -1,5 +1,7 @@
+import os
+import sqlite3
+
 from app.db import engine
-import sqlite3, os
 
 db = engine.url.database
 if not os.path.isabs(db):

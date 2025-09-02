@@ -92,4 +92,3 @@ if ($paidCount -ge 1 -and $valCount -ge 1) {
 } else {
   Write-Error (">> FAIL: audit/range no refleja ambos tipos (validate={0}, paid={1})." -f $valCount, $paidCount)
 }
-

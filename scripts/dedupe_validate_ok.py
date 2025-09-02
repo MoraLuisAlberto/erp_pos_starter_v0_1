@@ -1,4 +1,6 @@
-import os, sqlite3
+import os
+import sqlite3
+
 from app.db import engine
 
 db = engine.url.database
@@ -7,7 +9,8 @@ if not os.path.isabs(db):
 
 con = sqlite3.connect(db)
 cur = con.cursor()
-cur.execute("""
+cur.execute(
+    """
 DELETE FROM coupon_audit
 WHERE event='validate-ok'
 AND id NOT IN (
@@ -15,7 +18,8 @@ AND id NOT IN (
     WHERE event='validate-ok'
     GROUP BY coupon_id, event, notes
 )
-""")
+"""
+)
 deleted = con.total_changes
 con.commit()
 con.close()

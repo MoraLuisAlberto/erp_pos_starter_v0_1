@@ -1,7 +1,9 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text
-from sqlalchemy.orm import relationship
 from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+
 from app.core.db import Base
+
 
 class Store(Base):
     __tablename__ = "stores"
@@ -9,12 +11,14 @@ class Store(Base):
     name = Column(String, nullable=False)
     currency = Column(String, default="MXN")
 
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     full_name = Column(String)
     role = Column(String, default="cashier")
+
 
 class CashSession(Base):
     __tablename__ = "cash_sessions"
@@ -27,6 +31,7 @@ class CashSession(Base):
     closing_balance = Column(Float, nullable=True)
     status = Column(String, default="OPEN")
 
+
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True)
@@ -36,11 +41,13 @@ class Product(Base):
     control_stock = Column(Boolean, default=False)
     stock_qty = Column(Float, default=0.0)
 
+
 class Customer(Base):
     __tablename__ = "customers"
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     price_list = Column(String, nullable=True)
+
 
 class Coupon(Base):
     __tablename__ = "coupons"
@@ -56,6 +63,7 @@ class Coupon(Base):
     active = Column(Boolean, default=True)
     offline_allowed = Column(Boolean, default=False)
 
+
 class Sale(Base):
     __tablename__ = "sales"
     id = Column(Integer, primary_key=True)
@@ -69,6 +77,7 @@ class Sale(Base):
     total = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 class SaleItem(Base):
     __tablename__ = "sale_items"
     id = Column(Integer, primary_key=True)
@@ -78,6 +87,7 @@ class SaleItem(Base):
     unit_price = Column(Float, nullable=False)
     discount = Column(Float, default=0.0)
     total = Column(Float, nullable=False)
+
 
 class Payment(Base):
     __tablename__ = "payments"
@@ -89,6 +99,7 @@ class Payment(Base):
     card_last4 = Column(String, nullable=True)
     ext_ref = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class Cart(Base):
     __tablename__ = "carts"

@@ -1,24 +1,30 @@
-import os, sqlite3
+import os
+import sqlite3
 
 DB = os.path.join(os.getcwd(), "erp_pos.db")
-conn = sqlite3.connect(DB); cur = conn.cursor()
+conn = sqlite3.connect(DB)
+cur = conn.cursor()
+
 
 def has_col(table, col):
     cur.execute(f"PRAGMA table_info('{table}')")
-    return any(r[1]==col for r in cur.fetchall())
+    return any(r[1] == col for r in cur.fetchall())
+
 
 # A) columna product.barcode
-if not has_col("product","barcode"):
+if not has_col("product", "barcode"):
     cur.execute("ALTER TABLE product ADD COLUMN barcode VARCHAR(50)")
     print("-> added product.barcode")
 
 # B) tabla product_barcode
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS product_barcode (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL REFERENCES product(id),
     code VARCHAR(50) NOT NULL UNIQUE
-)""")
+)"""
+)
 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_product_barcode_code ON product_barcode(code)")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_product_barcode_product ON product_barcode(product_id)")
 
@@ -26,8 +32,10 @@ cur.execute("CREATE INDEX IF NOT EXISTS ix_product_barcode_product ON product_ba
 cur.execute("SELECT id, COALESCE(barcode,'') FROM product ORDER BY id LIMIT 1")
 row = cur.fetchone()
 if row is None:
-    cur.execute("INSERT INTO product (name, barcode, uom) VALUES (?,?,?)",
-                ("Demo Product","7501234567890","unit"))
+    cur.execute(
+        "INSERT INTO product (name, barcode, uom) VALUES (?,?,?)",
+        ("Demo Product", "7501234567890", "unit"),
+    )
     pid = cur.lastrowid
     barcode = "7501234567890"
 else:
@@ -53,8 +61,11 @@ else:
 
 cur.execute("SELECT 1 FROM price_list_item WHERE price_list_id=? AND product_id=?", (plid, pid))
 if cur.fetchone() is None:
-    cur.execute("INSERT INTO price_list_item (price_list_id, product_id, price) VALUES (?,?,?)",
-                (plid, pid, 129.00))
+    cur.execute(
+        "INSERT INTO price_list_item (price_list_id, product_id, price) VALUES (?,?,?)",
+        (plid, pid, 129.00),
+    )
 
-conn.commit(); conn.close()
+conn.commit()
+conn.close()
 print(barcode)

@@ -1,17 +1,21 @@
 from __future__ import annotations
-import time, json, uuid
-from pathlib import Path
-from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter, HTTPException, Header
+import json
+from pathlib import Path
+import time
+from typing import Any, Dict, List, Optional
+import uuid
+
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.utils.atomic_file import write_json_atomic, append_jsonl_atomic
+from app.utils.atomic_file import append_jsonl_atomic, write_json_atomic
 
 router = APIRouter()
 
 BALANCES = Path("data/wallet_balances.json")
-LEDGER   = Path("data/wallet_ledger.jsonl")
+LEDGER = Path("data/wallet_ledger.jsonl")
+
 
 # carga/guarda balances (archivo pequeño)
 def _load_balances() -> Dict[str, float]:
@@ -22,19 +26,24 @@ def _load_balances() -> Dict[str, float]:
     except Exception:
         return {}
 
+
 def _save_balances(bal: Dict[str, float]) -> None:
     write_json_atomic(BALANCES, bal)
 
+
 def _append_ledger(entry: Dict[str, Any]) -> None:
     append_jsonl_atomic(LEDGER, entry)
+
 
 # Idempotencia simple en memoria (TTL 1h). Solo cachea 200 OK.
 _IDEM: Dict[str, Dict[str, Any]] = {}
 _IDEM_EXP: Dict[str, float] = {}
 _IDEM_TTL = 3600.0
 
+
 def _idem_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
-    if not key: return None
+    if not key:
+        return None
     exp = _IDEM_EXP.get(key, 0)
     if exp < time.time():
         _IDEM.pop(key, None)
@@ -42,19 +51,24 @@ def _idem_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
         return None
     return _IDEM.get(key)
 
+
 def _idem_set(key: Optional[str], value: Dict[str, Any]) -> None:
-    if not key: return
+    if not key:
+        return
     _IDEM[key] = value
     _IDEM_EXP[key] = time.time() + _IDEM_TTL
+
 
 # ====== Schemas ======
 class CreditReq(BaseModel):
     customer_id: int = Field(..., gt=0)
     amount: float = Field(..., gt=0)
 
+
 class DebitReq(BaseModel):
     customer_id: int = Field(..., gt=0)
     amount: float = Field(..., gt=0)
+
 
 class TxResp(BaseModel):
     ok: bool
@@ -64,11 +78,13 @@ class TxResp(BaseModel):
     balance: float
     replay: bool = False
 
+
 # ====== Endpoints ======
 @router.get("/wallet/balance")
 def wallet_balance(customer_id: int):
     bal = _load_balances()
     return {"customer_id": customer_id, "balance": float(bal.get(str(customer_id), 0.0))}
+
 
 @router.get("/wallet/ledger")
 def wallet_ledger(customer_id: Optional[int] = None, limit: int = 50):
@@ -86,6 +102,7 @@ def wallet_ledger(customer_id: Optional[int] = None, limit: int = 50):
     if customer_id is not None:
         entries = [e for e in entries if e.get("customer_id") == customer_id]
     return {"count": len(entries[-limit:]), "entries": entries[-limit:]}
+
 
 @router.post("/wallet/credit", response_model=TxResp)
 def wallet_credit(
@@ -115,9 +132,17 @@ def wallet_credit(
     }
     _append_ledger(entry)
 
-    resp = {"ok": True, "tx_id": tx_id, "customer_id": req.customer_id, "amount": float(req.amount), "balance": new_balance, "replay": False}
+    resp = {
+        "ok": True,
+        "tx_id": tx_id,
+        "customer_id": req.customer_id,
+        "amount": float(req.amount),
+        "balance": new_balance,
+        "replay": False,
+    }
     _idem_set(Idempotency_Key, resp)
     return resp
+
 
 @router.post("/wallet/debit", response_model=TxResp)
 def wallet_debit(
@@ -152,6 +177,13 @@ def wallet_debit(
     }
     _append_ledger(entry)
 
-    resp = {"ok": True, "tx_id": tx_id, "customer_id": req.customer_id, "amount": amt, "balance": new_balance, "replay": False}
+    resp = {
+        "ok": True,
+        "tx_id": tx_id,
+        "customer_id": req.customer_id,
+        "amount": amt,
+        "balance": new_balance,
+        "replay": False,
+    }
     _idem_set(Idempotency_Key, resp)
     return resp

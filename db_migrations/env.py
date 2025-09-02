@@ -1,6 +1,7 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 config = context.config
 if config.config_file_name is not None:
@@ -8,16 +9,19 @@ if config.config_file_name is not None:
 
 # === Importa la metadata del proyecto ===
 from app.db import Base  # Base declarativa
+
 # Cuando agreguemos modelos, descomenta:
-from app.models import product, coupon, stock, pos, audit  # noqa: F401
+from app.models import audit, coupon, pos, product, stock  # noqa: F401
 
 target_metadata = Base.metadata
+
 
 def run_migrations_offline():
     url = config.get_main_option("sqlalchemy.url")
     context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
+
 
 def run_migrations_online():
     connectable = engine_from_config(
@@ -29,6 +33,7 @@ def run_migrations_online():
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
+
 
 if context.is_offline_mode():
     run_migrations_offline()

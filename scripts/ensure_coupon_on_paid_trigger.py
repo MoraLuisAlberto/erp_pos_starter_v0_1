@@ -1,9 +1,13 @@
-import os, sqlite3
+import os
+import sqlite3
+
 from app.db import engine
 
 db = engine.url.database
-if not os.path.isabs(db): db = os.path.abspath(db)
-con = sqlite3.connect(db); cur = con.cursor()
+if not os.path.isabs(db):
+    db = os.path.abspath(db)
+con = sqlite3.connect(db)
+cur = con.cursor()
 
 # Drop triggers antiguos si existieran (idempotente)
 try:
@@ -12,7 +16,8 @@ except Exception:
     pass
 
 # Crea trigger: al pasar de !=paid a paid, incrementar usos y auditar "applied"
-cur.execute("""
+cur.execute(
+    """
 CREATE TRIGGER trg_coupon_on_paid
 AFTER UPDATE OF status ON pos_order
 WHEN NEW.status='paid' AND OLD.status!='paid'
@@ -31,7 +36,8 @@ BEGIN
     FROM pos_order_coupon oc
    WHERE oc.order_id = NEW.id;
 END;
-""")
+"""
+)
 
 con.commit()
 con.close()

@@ -1,7 +1,11 @@
 from __future__ import annotations
-import os, tempfile, io, json
+
+import json
+import os
+import tempfile
 
 __all__ = ["atomic_write_text", "write_json_atomic", "append_jsonl_atomic"]
+
 
 def atomic_write_text(path: str, text: str, encoding: str = "utf-8") -> None:
     """
@@ -11,7 +15,7 @@ def atomic_write_text(path: str, text: str, encoding: str = "utf-8") -> None:
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=d)
     try:
-        with io.open(fd, "w", encoding=encoding, newline="") as f:
+        with open(fd, "w", encoding=encoding, newline="") as f:
             f.write(text)
         os.replace(tmp, path)
     finally:
@@ -21,12 +25,14 @@ def atomic_write_text(path: str, text: str, encoding: str = "utf-8") -> None:
         except Exception:
             pass
 
+
 def write_json_atomic(path: str, obj, ensure_ascii: bool = False, separators=(",", ":")) -> None:
     """
     Serializa a JSON y escribe de forma atómica.
     """
     s = json.dumps(obj, ensure_ascii=ensure_ascii, separators=separators)
     atomic_write_text(path, s)
+
 
 def append_jsonl_atomic(path: str, obj, ensure_ascii: bool = False) -> None:
     """

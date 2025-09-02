@@ -156,5 +156,3 @@ if ($oid1 -and $oid2 -and ($oid1 -eq $oid2)) {
 } else {
   Write-Host (">> ALERTA: order_id inconsistente (1:{0}, 2:{1})." -f $oid1,$oid2); exit 6
 }
-
-
