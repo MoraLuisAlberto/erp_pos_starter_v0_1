@@ -46,7 +46,6 @@ jobs:
         run: |
           python - <<'PY' || true
           try:
-              # Try common locations for Base/engine
               try:
                   from app.core.db import Base, engine
               except Exception:
@@ -84,14 +83,43 @@ jobs:
           tail -n 200 uvicorn.log || true
           exit 1
 
+      - name: Smoke check /session/open (no-fail, imprime cuerpo)
+        run: |
+          echo '{"pos_id":1,"cashier_id":1,"opening_cash":0}' > /tmp/open.json
+          code=$(curl -s -o /tmp/open_body.txt -w "%{http_code}" -H "Content-Type: application/json" -d @/tmp/open.json http://127.0.0.1:8010/session/open || true)
+          echo "Status: $code"
+          echo "---- /session/open body ----"
+          cat /tmp/open_body.txt || true
+          if [ "$code" -ne 200 ]; then
+            echo "==== uvicorn.log (tail) ===="
+            tail -n 400 uvicorn.log || true
+          fi
+          # No fallamos aquí para permitir que pytest capture todo el rastro
+          true
+
       - name: Run tests
         run: pytest -q
 
-      - name: On failure, show server log tail
+      - name: On failure, show server log + DB schema
         if: ${{ failure() }}
         run: |
           echo "==== uvicorn.log (tail) ===="
-          tail -n 400 uvicorn.log || true
+          tail -n 500 uvicorn.log || true
+          echo "==== SQLite schema dump ===="
+          python - <<'PY' || true
+          import sqlite3, json
+          con=sqlite3.connect('erp.db'); con.row_factory=sqlite3.Row
+          cur=con.cursor()
+          tabs=[r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+          print("TABLES:", tabs)
+          for t in tabs:
+              cols=[dict(row) for row in cur.execute(f"PRAGMA table_info('{t}')")]
+              fks=[dict(zip([d[0] for d in cur.description], r)) for r in cur.execute(f"PRAGMA foreign_key_list('{t}')")]
+              print(f"== {t} ==")
+              print("COLUMNS:", json.dumps(cols, indent=2))
+              print("FKS:", json.dumps(fks, indent=2))
+          con.close()
+          PY
 
       - name: Upload uvicorn.log artifact (always)
         if: ${{ always() }}
