@@ -61,8 +61,6 @@ jobs:
         run: |
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level debug > uvicorn.log 2>&1 &
           echo $! > uvicorn.pid
-          sleep 1
-          echo "PID: $(cat uvicorn.pid)"
 
       - name: Wait for /health
         run: |
@@ -77,6 +75,19 @@ jobs:
           tail -n 200 uvicorn.log || true
           exit 1
 
+      - name: Smoke check /session/open (imprime cuerpo si !=200)
+        run: |
+          echo '{"pos_id":1,"cashier_id":1,"opening_cash":0}' > /tmp/open.json
+          code=$(curl -s -o /tmp/open_body.txt -w "%{http_code}" -H "Content-Type: application/json" -d @/tmp/open.json http://127.0.0.1:8010/session/open || true)
+          echo "Status: $code"
+          echo "---- /session/open body ----"
+          cat /tmp/open_body.txt || true
+          if [ "$code" -ne 200 ]; then
+            echo "==== uvicorn.log (tail) ===="
+            tail -n 400 uvicorn.log || true
+          fi
+          true
+
       - name: Run tests
         run: pytest -q
 
@@ -84,7 +95,7 @@ jobs:
         if: ${{ failure() }}
         run: |
           echo "==== uvicorn.log (tail) ===="
-          tail -n 400 uvicorn.log || true
+          tail -n 500 uvicorn.log || true
 
       - name: Upload uvicorn.log artifact (always)
         if: ${{ always() }}
