@@ -5,5 +5,5 @@ repos:
       - id: ruff
         args: [--fix, --unsafe-fixes, --exit-non-zero-on-fix]
       - id: ruff-format
-# Black fuera por ahora (lo podemos volver a activar luego)
+
 
