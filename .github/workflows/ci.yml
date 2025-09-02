@@ -23,6 +23,8 @@ jobs:
 
       - name: Run pre-commit (ruff/black/etc)
         uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files
 
       - name: Run tests
         run: pytest -q
