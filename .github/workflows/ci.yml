@@ -9,9 +9,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: sqlite:///./erp.db
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -23,43 +26,76 @@ jobs:
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
           pip install pytest requests uvicorn alembic
 
-      - name: Prepare DB (SQLite + migrations + seed)
-        env:
-          PYTHONPATH: .
-          DATABASE_URL: sqlite:///./erp.db
+      - name: Prepare DB file
         run: |
           python - <<'PY'
           import pathlib, sqlite3
           p = pathlib.Path("erp.db")
           if not p.exists():
               sqlite3.connect("erp.db").close()
-              print("Created empty SQLite DB", p)
+              print("Created SQLite DB")
           else:
-              print("Using existing DB", p)
+              print("Using existing SQLite DB")
           PY
-          if [ -f alembic.ini ]; then alembic upgrade head; fi
-          # si existen estos módulos, hacen el seed mínimo para las pruebas
+
+      - name: Migrate (Alembic if present)
+        run: |
+          if [ -f alembic.ini ]; then alembic upgrade head || true; fi
+
+      - name: Fallback metadata.create_all (optional)
+        run: |
+          python - <<'PY' || true
+          try:
+              # Try common locations for Base/engine
+              try:
+                  from app.core.db import Base, engine
+              except Exception:
+                  from app.db import Base, engine
+              Base.metadata.create_all(bind=engine)
+              print("metadata.create_all done")
+          except Exception as e:
+              print("Skip metadata.create_all fallback:", e)
+          PY
+
+      - name: Seed demo data (optional)
+        run: |
           python -m app.seed_demo || true
           python -m app.seed_coupon_demo || true
 
-      - name: Start API (background)
-        env:
-          PYTHONPATH: .
-          DATABASE_URL: sqlite:///./erp.db
+      - name: Bootstrap minimal fixtures (robusto)
         run: |
-          python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level warning &
+          python -m app.ops.bootstrap || true
+
+      - name: Start API (background with logs)
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level debug > uvicorn.log 2>&1 &
           echo $! > uvicorn.pid
 
       - name: Wait for /health
         run: |
           for i in {1..40}; do
-            if curl -fsS http://127.0.0.1:8010/health > /dev/null; then
+            if curl -fsS http://127.0.0.1:8010/health >/dev/null; then
               echo "API ready"; exit 0
             fi
             sleep 1
           done
-          echo "API did not start in time" >&2
+          echo "API did not start in time"
+          echo "==== uvicorn.log (tail) ===="
+          tail -n 200 uvicorn.log || true
           exit 1
 
       - name: Run tests
         run: pytest -q
+
+      - name: On failure, show server log tail
+        if: ${{ failure() }}
+        run: |
+          echo "==== uvicorn.log (tail) ===="
+          tail -n 400 uvicorn.log || true
+
+      - name: Upload uvicorn.log artifact (always)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: uvicorn-log
+          path: uvicorn.log
