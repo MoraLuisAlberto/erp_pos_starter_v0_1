@@ -1,5 +1,4 @@
 name: CI
-
 on:
   push:
     branches: [develop, feature/**]
@@ -10,17 +9,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.12" ]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
       - name: Install dependencies
-        shell: bash
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -32,7 +26,6 @@ jobs:
           echo $! > uvicorn.pid
         env:
           PYTHONPATH: .
-  
       - name: Wait for /health
         run: |
           for i in {1..40}; do
@@ -42,7 +35,6 @@ jobs:
             sleep 1
           done
           echo "API did not start in time" >&2; exit 1
-  
       - name: Run tests
         run: pytest -q
 
