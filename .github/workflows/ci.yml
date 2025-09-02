@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,21 +21,40 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          pip install pytest requests uvicorn
+          pip install pytest requests uvicorn alembic
+
+      - name: Prepare DB (SQLite + migrations + seed)
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: sqlite:///./erp.db
+        run: |
+          python - <<'PY'
+          import pathlib, sqlite3
+          p = pathlib.Path("erp.db")
+          if not p.exists():
+              sqlite3.connect("erp.db").close()
+              print("Created empty SQLite DB", p)
+          else:
+              print("Using existing DB", p)
+          PY
+          if [ -f alembic.ini ]; then alembic upgrade head; fi
+          # si existen estos módulos, hacen el seed mínimo para las pruebas
+          python -m app.seed_demo || true
+          python -m app.seed_coupon_demo || true
 
       - name: Start API (background)
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: sqlite:///./erp.db
         run: |
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level warning &
           echo $! > uvicorn.pid
-        env:
-          PYTHONPATH: .
 
       - name: Wait for /health
         run: |
           for i in {1..40}; do
             if curl -fsS http://127.0.0.1:8010/health > /dev/null; then
-              echo "API ready"
-              exit 0
+              echo "API ready"; exit 0
             fi
             sleep 1
           done
