@@ -789,3 +789,18 @@ try:
 except Exception:
     pass
 # WEEKEND15_SAFETY_OVERRIDE_END
+
+
+def usage_inc_if_possible(code: str, customer_id: Optional[int]) -> bool:
+    """
+    Incrementa el contador de uso para (code, customer_id) si no excede max_uses.
+    Devuelve True si incrementó; False si ya alcanzó el límite.
+    """
+    code = (code or "").strip().upper()
+    used, max_uses, _remaining = usage_get(code, customer_id)
+    if isinstance(max_uses, int) and used >= max_uses:
+        return False
+    key = (code, int(customer_id)) if customer_id is not None else (code, -1)
+    _USAGE[key] = used + 1
+    _usage_save()
+    return True
