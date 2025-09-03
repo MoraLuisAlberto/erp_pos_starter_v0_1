@@ -11,3 +11,8 @@ __pycache__/
 *.bak*
 data/*.log
 scripts/logs/
+
+# runtime data
+/data/*.json
+/data/*.jsonl
+!data/README.md

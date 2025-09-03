@@ -60,6 +60,10 @@ jobs:
           set -e
           python scripts/bootstrap_pos_session.py
 
+        run: |
+          set -e
+          python scripts/bootstrap_pos_session.py
+
       - name: Validate schema (pos_session columns)
         run: |
           set -e
@@ -114,7 +118,6 @@ jobs:
           cat /tmp/open_resp.txt || true
           echo
           python - <<'PY' || true
-          import json
           try:
               txt=open("/tmp/open_resp.txt","r",encoding="utf-8").read()
               obj=json.loads(txt)
