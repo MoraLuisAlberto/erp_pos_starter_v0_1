@@ -60,10 +60,6 @@ jobs:
           set -e
           python scripts/bootstrap_pos_session.py
 
-        run: |
-          set -e
-          python scripts/bootstrap_pos_session.py
-
       - name: Validate schema (pos_session columns)
         run: |
           set -e
