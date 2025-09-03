@@ -1,5 +1,7 @@
 from sqlalchemy import Column, Integer, String
+
 from ..db import Base
+
 
 class Segment(Base):
     __tablename__ = "segment"

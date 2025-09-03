@@ -1,4 +1,7 @@
-import os, sqlite3, shutil
+import os
+import shutil
+import sqlite3
+
 from app.db import engine
 
 db_path = engine.url.database
@@ -21,7 +24,8 @@ exists = cur.fetchone() is not None
 
 if exists:
     # Recrea tabla con stage NULL (sin NOT NULL)
-    cur.execute("""
+    cur.execute(
+        """
         CREATE TABLE cash_count__new(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL,
@@ -33,10 +37,12 @@ if exists:
             details_json TEXT NULL,
             at DATETIME NULL
         )
-    """)
+    """
+    )
     # Copia datos desde la vieja (mapeando columnas si faltan)
     # Nota: usamos COALESCE para stage por si había valores previos
-    cur.execute("""
+    cur.execute(
+        """
         INSERT INTO cash_count__new (id, session_id, stage, created_at, by_user, kind, total, details_json, at)
         SELECT
             id,
@@ -49,12 +55,14 @@ if exists:
             details_json,
             at
         FROM cash_count
-    """)
+    """
+    )
     cur.execute("DROP TABLE cash_count")
     cur.execute("ALTER TABLE cash_count__new RENAME TO cash_count")
 else:
     # Si no existía, créala directamente con stage NULL
-    cur.execute("""
+    cur.execute(
+        """
         CREATE TABLE cash_count(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL,
@@ -66,7 +74,8 @@ else:
             details_json TEXT NULL,
             at DATETIME NULL
         )
-    """)
+    """
+    )
 
 conn.commit()
 cur.execute("PRAGMA foreign_keys=on")

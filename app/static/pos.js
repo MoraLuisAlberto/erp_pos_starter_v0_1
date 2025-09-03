@@ -27,7 +27,7 @@ function renderCart(){
 
 function readSessionId(){ return document.querySelector("#sessionId").value.trim(); }
 function readPL(){ return parseInt(document.querySelector("#priceListId").value||"1"); }
-function readCustomer(){ 
+function readCustomer(){
   const v = document.querySelector("#customerId").value.trim();
   return v?parseInt(v):null;
 }
@@ -78,7 +78,7 @@ async function draft(){
     headers:{"Content-Type":"application/json","X-Idempotency-Key":idem("order-ui")},
     body:JSON.stringify(body)
   });
-  if(!r.ok){ 
+  if(!r.ok){
     const t = await r.text();
     alert("DRAFT error: "+t); return;
   }
@@ -95,8 +95,8 @@ async function payCash(){
   const r = await fetch(API("/pos/order/pay"),{
     method:"POST",
     headers:{"Content-Type":"application/json","X-Idempotency-Key":idem("pay-ui")},
-    body:JSON.stringify({ 
-      order_id: LAST_ORDER.order_id, 
+    body:JSON.stringify({
+      order_id: LAST_ORDER.order_id,
       splits: [{ method:"cash", amount: LAST_ORDER.total }]
     })
   });
@@ -127,7 +127,7 @@ document.addEventListener("click",(e)=>{
   if(e.target.id==="btnDraft"){ draft(); }
   if(e.target.id==="btnPayCash"){ payCash(); }
   if(e.target.id==="btnUndo"){ undo(); }
-  if(e.target.dataset?.del){ 
+  if(e.target.dataset?.del){
     CART.splice(parseInt(e.target.dataset.del),1); renderCart();
   }
 });

@@ -25,7 +25,7 @@ if (-not (Test-Compile $cp)) {
   $restored = $false
   foreach ($b in $baks) {
     Copy-Item $b.FullName $cp -Force
-    if (Test-Compile $cp) { 
+    if (Test-Compile $cp) {
       Write-Host "Restaurado desde $($b.Name)"
       $restored = $true
       break

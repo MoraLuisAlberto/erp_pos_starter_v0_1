@@ -1,6 +1,10 @@
-import os, requests, datetime as dt
+import datetime as dt
+import os
+
+import requests
 
 BASE = os.environ.get("ERP_POS_BASE", "http://127.0.0.1:8010")
+
 
 def test_range_totals_match_csv_lines():
     today = dt.datetime.utcnow().date().isoformat()

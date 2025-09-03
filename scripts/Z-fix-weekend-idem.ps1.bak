@@ -363,7 +363,7 @@ Write-Host "✓ Middleware escrito en app\middleware\idempotency.py"
 # 2) Ajuste WEEKEND15: permitir sábado y domingo (varios patrones posibles)
 if (Test-Path app\routers\coupon.py) {
    = Get-Content app\routers\coupon.py -Raw
-   = 
+   =
    =  -replace '\bweekday\s*==\s*("|\')sat\1', 'weekday in ("sat","sun")'
    =  -replace 'weekday\s+in\s+\[\s*("|\')sat\1\s*\]', 'weekday in ("sat","sun")'
    =  -replace 'weekday\s+in\s+\(\s*("|\')sat\1\s*(,)?\s*\)', 'weekday in ("sat","sun")'

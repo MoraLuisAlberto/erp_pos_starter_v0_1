@@ -59,14 +59,3 @@ app.include_router(coupon_router.router, prefix="/pos/coupon", tags=["coupon"])
 # Wallet (CRM) y reportes
 app.include_router(wallet_router.router,   prefix="/crm",     tags=["wallet"])
 app.include_router(wallet_router.reports, prefix="/reports", tags=["reports"])
-
-
-
-
-
-
-
-
-
-
-

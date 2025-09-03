@@ -1,4 +1,6 @@
-import os, sqlite3
+import os
+import sqlite3
+
 from app.db import engine
 
 db_path = engine.url.database
@@ -8,10 +10,12 @@ if not os.path.isabs(db_path):
 con = sqlite3.connect(db_path)
 cur = con.cursor()
 
-cur.executescript("""
+cur.executescript(
+    """
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pos_payment_order_id_idem
 ON pos_payment(order_id, idempotency_key);
-""")
+"""
+)
 
 con.commit()
 con.close()

@@ -1,4 +1,6 @@
-import os, sqlite3
+import os
+import sqlite3
+
 from app.db import engine
 
 db_path = engine.url.database
@@ -8,7 +10,8 @@ if not os.path.isabs(db_path):
 con = sqlite3.connect(db_path)
 cur = con.cursor()
 
-cur.executescript("""
+cur.executescript(
+    """
 CREATE TRIGGER IF NOT EXISTS trg_cash_count_stage_default
 AFTER INSERT ON cash_count
 FOR EACH ROW
@@ -24,7 +27,9 @@ WHEN NEW.created_at IS NULL
 BEGIN
   UPDATE cash_count SET created_at = datetime('now') WHERE id = NEW.id;
 END;
-""")
+"""
+)
 
-con.commit(); con.close()
+con.commit()
+con.close()
 print("TRIGGERS_OK")

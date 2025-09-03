@@ -1,41 +1,58 @@
-from typing import Optional, List, Dict
-from fastapi import APIRouter, Header, Depends, HTTPException
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from ..db import get_db
 
 # Opcional: si existe el servicio de cupones, lo usamos; si no, seguimos sin fallo.
 try:
     from ..services.coupon_usage import mark_coupons_used
 except Exception:  # pragma: no cover
+
     def mark_coupons_used(db, order_id: int, by_user: str = "pos"):
         return None
 
+
 router = APIRouter()
+
 
 class Split(BaseModel):
     method: str
     amount: float
 
+
 class PayBody(BaseModel):
     order_id: int
     splits: List[Split]
 
+
 def _load_order_payload(db: Session, order_id: int) -> Dict:
     # order
-    o = db.execute(text("""
+    o = db.execute(
+        text(
+            """
         SELECT id, order_no, status, subtotal, discount_total, tax_total, total
         FROM pos_order WHERE id = :oid
-    """), {"oid": order_id}).fetchone()
+    """
+        ),
+        {"oid": order_id},
+    ).fetchone()
     if not o:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
     # lines
-    lines = db.execute(text("""
+    lines = db.execute(
+        text(
+            """
         SELECT id, product_id, qty, unit_price, line_total
         FROM pos_order_line WHERE order_id = :oid
         ORDER BY id
-    """), {"oid": order_id}).fetchall()
+    """
+        ),
+        {"oid": order_id},
+    ).fetchall()
     return {
         "order_id": o.id,
         "order_no": o.order_no,
@@ -51,26 +68,36 @@ def _load_order_payload(db: Session, order_id: int) -> Dict:
                 "qty": float(r.qty or 0),
                 "unit_price": float(r.unit_price or 0),
                 "line_total": float(r.line_total or 0),
-            } for r in lines
-        ]
+            }
+            for r in lines
+        ],
     }
+
 
 def _load_payment_by_key(db: Session, idem_key: str):
     if not idem_key:
         return None
-    row = db.execute(text("""
+    row = db.execute(
+        text(
+            """
         SELECT id, order_id, method, amount
         FROM pos_payment
         WHERE idempotency_key = :k
         ORDER BY id DESC
         LIMIT 1
-    """), {"k": idem_key}).fetchone()
+    """
+        ),
+        {"k": idem_key},
+    ).fetchone()
     return row
+
 
 @router.post("/pay-guarded")
 def pay_guarded(
     body: PayBody,
-    x_idem: Optional[str] = Header(default=None, alias="X-Idempotency-Key", convert_underscores=False),
+    x_idem: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", convert_underscores=False
+    ),
     db: Session = Depends(get_db),
 ):
     # 1) Reproducción idempotente por key (replay SIEMPRE que exista)
@@ -86,9 +113,14 @@ def pay_guarded(
         }
 
     # 2) Orden y estado
-    o = db.execute(text("""
+    o = db.execute(
+        text(
+            """
         SELECT id, status, total FROM pos_order WHERE id = :oid
-    """), {"oid": body.order_id}).fetchone()
+    """
+        ),
+        {"oid": body.order_id},
+    ).fetchone()
     if not o:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
 
@@ -99,25 +131,35 @@ def pay_guarded(
     # 3) Insertar pago y splits
     total = float(o.total or 0)
     captured_at = db.execute(text("SELECT datetime('now')")).scalar()
-    db.execute(text("""
+    db.execute(
+        text(
+            """
         INSERT INTO pos_payment (order_id, method, amount, captured_at, idempotency_key, ref_ext, by_user)
         VALUES (:oid, :m, :a, :at, :k, NULL, 'demo')
-    """), {
-        "oid": body.order_id,
-        "m": body.splits[0].method if body.splits else "cash",
-        "a": total,
-        "at": captured_at,
-        "k": x_idem or None,
-    })
+    """
+        ),
+        {
+            "oid": body.order_id,
+            "m": body.splits[0].method if body.splits else "cash",
+            "a": total,
+            "at": captured_at,
+            "k": x_idem or None,
+        },
+    )
     # id del pago recién insertado
     pay_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
 
     # splits
     for s in body.splits:
-        db.execute(text("""
+        db.execute(
+            text(
+                """
             INSERT INTO pos_payment_split (payment_id, method, amount)
             VALUES (:pid, :m, :a)
-        """), {"pid": pay_id, "m": s.method, "a": float(s.amount or 0)})
+        """
+            ),
+            {"pid": pay_id, "m": s.method, "a": float(s.amount or 0)},
+        )
 
     # 4) Marcar orden como pagada
     db.execute(text("UPDATE pos_order SET status='paid' WHERE id = :oid"), {"oid": body.order_id})

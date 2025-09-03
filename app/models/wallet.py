@@ -1,6 +1,8 @@
 # Minimal para compilar; el original contenia lineas no-Python.
-from pydantic import BaseModel
 from typing import Optional
+
+from pydantic import BaseModel
+
 
 class Wallet(BaseModel):
     id: Optional[int] = None

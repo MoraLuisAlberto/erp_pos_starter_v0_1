@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import Session
+
 from ..db import SessionLocal
-from ..models.product import Product, ProductBarcode, PriceList, PriceListItem
+from ..models.product import PriceList, PriceListItem, Product, ProductBarcode
 
 router = APIRouter()
+
 
 @router.get("/{barcode}")
 def scan_barcode(barcode: str, price_list_id: int | None = None):
@@ -24,7 +26,11 @@ def scan_barcode(barcode: str, price_list_id: int | None = None):
 
         price = None
         if price_list_id is not None:
-            pli = db.query(PriceListItem).filter_by(price_list_id=price_list_id, product_id=p.id).first()
+            pli = (
+                db.query(PriceListItem)
+                .filter_by(price_list_id=price_list_id, product_id=p.id)
+                .first()
+            )
             if pli:
                 price = float(pli.price)
 
@@ -34,7 +40,7 @@ def scan_barcode(barcode: str, price_list_id: int | None = None):
             "barcode": p.barcode,
             "uom": p.uom,
             "price_list_id": price_list_id,
-            "price": price
+            "price": price,
         }
     finally:
         db.close()

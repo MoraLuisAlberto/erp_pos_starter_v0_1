@@ -1,7 +1,9 @@
 from fastapi import APIRouter
+
 from app.core.config import settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
 
 @router.get("/context", summary="Contexto de tienda")
 def get_context():

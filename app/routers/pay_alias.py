@@ -1,19 +1,19 @@
-from fastapi import APIRouter, Header, Depends
-from sqlalchemy.orm import Session
 from typing import Optional
 
-from .pay_guarded import pay_guarded, PayBody
+from fastapi import APIRouter, Depends, Header
+from sqlalchemy.orm import Session
+
 from ..db import get_db
+from .pay_guarded import PayBody, pay_guarded
 
 router = APIRouter()
+
 
 @router.post("/pay")
 def pay_alias(
     body: PayBody,
     x_idem: Optional[str] = Header(
-        default=None,
-        alias="X-Idempotency-Key",
-        convert_underscores=False
+        default=None, alias="X-Idempotency-Key", convert_underscores=False
     ),
     db: Session = Depends(get_db),
 ):

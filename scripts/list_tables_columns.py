@@ -1,4 +1,7 @@
-import os, sqlite3, json
+import json
+import os
+import sqlite3
+
 from app.db import engine
 
 db_path = engine.url.database
@@ -8,10 +11,17 @@ if not os.path.isabs(db_path):
 con = sqlite3.connect(db_path)
 cur = con.cursor()
 
+
 def cols(table):
     return [r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()]
 
-tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+
+tables = [
+    r[0]
+    for r in cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    )
+]
 info = {t: cols(t) for t in tables}
 
 print(json.dumps(info, indent=2))

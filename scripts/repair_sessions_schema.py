@@ -1,24 +1,31 @@
-import os, sqlite3
+import os
+import sqlite3
 
 DB = os.path.join(os.getcwd(), "erp_pos.db")
-conn = sqlite3.connect(DB); cur = conn.cursor()
+conn = sqlite3.connect(DB)
+cur = conn.cursor()
 
-def table_exists(name): 
+
+def table_exists(name):
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
     return cur.fetchone() is not None
+
 
 def cols(name):
     cur.execute(f"PRAGMA table_info('{name}')")
     return [r[1] for r in cur.fetchall()]
+
 
 def ensure_col(table, col, decl):
     c = cols(table)
     if col not in c:
         cur.execute(f"ALTER TABLE {table} ADD COLUMN {decl}")
 
+
 # 1) POS SESSION
 if not table_exists("pos_session"):
-    cur.execute("""
+    cur.execute(
+        """
     CREATE TABLE pos_session (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         status VARCHAR(20),
@@ -35,7 +42,8 @@ if not table_exists("pos_session"):
         idem_open VARCHAR(80),
         idem_close VARCHAR(80)
     )
-    """)
+    """
+    )
 else:
     ensure_col("pos_session", "status", "status VARCHAR(20)")
     ensure_col("pos_session", "opened_at", "opened_at DATETIME")
@@ -53,7 +61,8 @@ else:
 
 # 2) CASH COUNT
 if not table_exists("cash_count"):
-    cur.execute("""
+    cur.execute(
+        """
     CREATE TABLE cash_count (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
@@ -63,7 +72,8 @@ if not table_exists("cash_count"):
         at DATETIME,
         by_user VARCHAR(60)
     )
-    """)
+    """
+    )
 else:
     ensure_col("cash_count", "session_id", "session_id INTEGER")
     ensure_col("cash_count", "kind", "kind VARCHAR(10)")
@@ -77,5 +87,6 @@ if table_exists("pos_order"):
     if "session_id" not in cols("pos_order"):
         cur.execute("ALTER TABLE pos_order ADD COLUMN session_id INTEGER")
 
-conn.commit(); conn.close()
+conn.commit()
+conn.close()
 print("SESSION_SCHEMA_OK")

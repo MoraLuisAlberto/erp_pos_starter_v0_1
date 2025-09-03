@@ -1,6 +1,7 @@
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
 
 router = APIRouter(prefix="/pos", tags=["pos-min"])
 
@@ -8,17 +9,20 @@ router = APIRouter(prefix="/pos", tags=["pos-min"])
 _orders: Dict[int, Dict[str, Any]] = {}
 _next_id = 1
 
+
 class Item(BaseModel):
     product_id: int
     qty: float = Field(gt=0)
     unit_price: float
     price: Optional[float] = None
 
+
 class DraftIn(BaseModel):
     customer_id: Optional[int] = None
     session_id: int
     price_list_id: Optional[int] = None
     items: List[Item]
+
 
 @router.post("/order/draft")
 def draft_order(body: DraftIn):
@@ -29,13 +33,15 @@ def draft_order(body: DraftIn):
         unit = it.price if it.price is not None else it.unit_price
         lt = float(unit) * float(it.qty)
         total += lt
-        lines.append({
-            "line_id": _next_id,
-            "product_id": it.product_id,
-            "qty": float(it.qty),
-            "unit_price": float(unit),
-            "line_total": float(lt),
-        })
+        lines.append(
+            {
+                "line_id": _next_id,
+                "product_id": it.product_id,
+                "qty": float(it.qty),
+                "unit_price": float(unit),
+                "line_total": float(lt),
+            }
+        )
     oid = _next_id
     _next_id += 1
     order = {
@@ -50,6 +56,7 @@ def draft_order(body: DraftIn):
     }
     _orders[oid] = order
     return order
+
 
 @router.post("/order/undo")
 def undo_order(order_id: int, session_id: int, reason: Optional[str] = None):

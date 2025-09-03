@@ -1,6 +1,9 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from datetime import datetime
+
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+
 from ..db import Base
+
 
 class AuditLog(Base):
     __tablename__ = "audit_log"

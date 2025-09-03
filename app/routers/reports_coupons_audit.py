@@ -1,16 +1,15 @@
-from fastapi import APIRouter, Query, Response
-from typing import List, Dict, Any, Optional
-from datetime import datetime, date, timezone
-from app.utils.atomic_file import write_json_atomic, append_jsonl_atomic
-import json
-import io
 import csv
+from datetime import date, datetime, timezone
+import io
+import json
+from typing import Any, Dict, List, Optional
 
-
+from fastapi import APIRouter, Query, Response
 
 from app.routers.pos_coupons import _AUDIT_FILE  # ruta del archivo
 
 router = APIRouter(prefix="/reports/coupon", tags=["reports", "coupon"])
+
 
 def _iter_audit():
     if not _AUDIT_FILE.exists():
@@ -25,8 +24,9 @@ def _iter_audit():
             except Exception:
                 continue
 
+
 def _parse_ts(ts: str) -> Optional[datetime]:
-    if not ts: 
+    if not ts:
         return None
     try:
         if ts.endswith("Z"):
@@ -34,6 +34,7 @@ def _parse_ts(ts: str) -> Optional[datetime]:
         return datetime.fromisoformat(ts)
     except Exception:
         return None
+
 
 @router.get("/audit/today")
 def audit_today(mode: str = Query(default="utc", pattern="^(utc|local|all)$")):
@@ -45,8 +46,13 @@ def audit_today(mode: str = Query(default="utc", pattern="^(utc|local|all)$")):
     events: List[Dict[str, Any]] = []
 
     if not file_exists:
-        return {"date": datetime.now(timezone.utc).date().isoformat(),
-                "mode": mode, "file_exists": False, "raw_count": 0, "events": []}
+        return {
+            "date": datetime.now(timezone.utc).date().isoformat(),
+            "mode": mode,
+            "file_exists": False,
+            "raw_count": 0,
+            "events": [],
+        }
 
     today_utc = datetime.now(timezone.utc).date()
     today_local = date.today()
@@ -72,8 +78,9 @@ def audit_today(mode: str = Query(default="utc", pattern="^(utc|local|all)$")):
         "mode": mode,
         "file_exists": True,
         "raw_count": total_lines,
-        "events": events
+        "events": events,
     }
+
 
 def _within_range(dt: datetime, start_d: date, end_d: date, mode: str) -> bool:
     # rango inclusivo [start, end]
@@ -83,11 +90,12 @@ def _within_range(dt: datetime, start_d: date, end_d: date, mode: str) -> bool:
         d = dt.date()
     return (d >= start_d) and (d <= end_d)
 
+
 @router.get("/audit/range")
 def audit_range(
     start: str = Query(..., description="YYYY-MM-DD"),
     end: str = Query(..., description="YYYY-MM-DD"),
-    mode: str = Query(default="utc", pattern="^(utc|local|all)$")
+    mode: str = Query(default="utc", pattern="^(utc|local|all)$"),
 ):
     """
     Devuelve eventos y un resumen por código y por tipo en el rango [start, end] (inclusive).
@@ -99,7 +107,7 @@ def audit_range(
 
     try:
         start_d = date.fromisoformat(start)
-        end_d   = date.fromisoformat(end)
+        end_d = date.fromisoformat(end)
     except Exception:
         return {"file_exists": True, "error": "invalid_date"}
 
@@ -134,23 +142,29 @@ def audit_range(
         validate_c = int(agg.get("validate", 0))
         paid_c = int(agg.get("paid", 0))
         conv = (paid_c / validate_c) if validate_c > 0 else None
-        out_codes.append({
-            "code": code, "validate": validate_c, "paid": paid_c,
-            "customers": customers, "conversion": conv
-        })
+        out_codes.append(
+            {
+                "code": code,
+                "validate": validate_c,
+                "paid": paid_c,
+                "customers": customers,
+                "conversion": conv,
+            }
+        )
 
     return {
         "file_exists": True,
         "range": {"start": start, "end": end, "mode": mode},
         "counts": {"total": len(events), "by_kind": by_kind},
-        "by_code": out_codes
+        "by_code": out_codes,
     }
+
 
 @router.get("/audit/export.csv")
 def audit_export_csv(
     start: str = Query(..., description="YYYY-MM-DD"),
     end: str = Query(..., description="YYYY-MM-DD"),
-    mode: str = Query(default="utc", pattern="^(utc|local|all)$")
+    mode: str = Query(default="utc", pattern="^(utc|local|all)$"),
 ):
     """
     Exporta CSV con columnas útiles.
@@ -160,13 +174,25 @@ def audit_export_csv(
 
     try:
         start_d = date.fromisoformat(start)
-        end_d   = date.fromisoformat(end)
+        end_d = date.fromisoformat(end)
     except Exception:
         return Response(content="error: invalid_date", media_type="text/plain", status_code=400)
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ts","kind","code","customer_id","order_id","payment_id","base_total","paid_total","idempotency_key"])
+    w.writerow(
+        [
+            "ts",
+            "kind",
+            "code",
+            "customer_id",
+            "order_id",
+            "payment_id",
+            "base_total",
+            "paid_total",
+            "idempotency_key",
+        ]
+    )
 
     for obj in _iter_audit():
         dt = _parse_ts(obj.get("ts"))
@@ -174,21 +200,23 @@ def audit_export_csv(
             continue
         if mode != "all" and not _within_range(dt, start_d, end_d, mode):
             continue
-        w.writerow([
-            obj.get("ts") or "",
-            obj.get("kind") or "",
-            (str(obj.get("code") or "").upper()),
-            obj.get("customer_id") or "",
-            obj.get("order_id") or "",
-            obj.get("payment_id") or "",
-            obj.get("base_total") or "",
-            obj.get("paid_total") or "",
-            obj.get("idempotency_key") or ""
-        ])
+        w.writerow(
+            [
+                obj.get("ts") or "",
+                obj.get("kind") or "",
+                (str(obj.get("code") or "").upper()),
+                obj.get("customer_id") or "",
+                obj.get("order_id") or "",
+                obj.get("payment_id") or "",
+                obj.get("base_total") or "",
+                obj.get("paid_total") or "",
+                obj.get("idempotency_key") or "",
+            ]
+        )
 
     csv_text = buf.getvalue()
     return Response(
         content=csv_text,
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="coupon_audit.csv"'}
+        headers={"Content-Disposition": 'attachment; filename="coupon_audit.csv"'},
     )

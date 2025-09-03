@@ -9,32 +9,130 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: sqlite:///./erp.db
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+
       - name: Install dependencies
         run: |
+          set -e
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          pip install pytest requests
-      - name: Start API (background)
+          pip install pytest requests uvicorn alembic
+
+      - name: Prepare DB (file + migrate + create_all)
         run: |
-          python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level warning &
+          set -e
+          python - <<'PY'
+          import pathlib, sqlite3
+          p = pathlib.Path("erp.db")
+          if not p.exists():
+              sqlite3.connect("erp.db").close()
+              print("Created SQLite DB")
+          else:
+              print("Using existing SQLite DB")
+          PY
+          if [ -f alembic.ini ]; then alembic upgrade head || echo "Warning: alembic failed"; fi
+          python - <<'PY' || echo "Warning: metadata.create_all fallback failed"
+          try:
+              from app.core.db import Base, engine
+              Base.metadata.create_all(bind=engine)
+              print("metadata.create_all done")
+          except Exception as e:
+              print("Skip metadata.create_all fallback:", e)
+          PY
+
+      - name: Seed (tolerante)
+        run: |
+          set -e
+          python -m app.seed_demo || echo "Warning: seed_demo failed"
+          python -m app.seed_coupon_demo || echo "Warning: seed_coupon_demo failed"
+
+      - name: Bootstrap pos_session (create-if-missing + add-cols)
+        run: |
+          set -e
+          python scripts/bootstrap_pos_session.py
+
+      - name: Validate schema (pos_session columns)
+        run: |
+          set -e
+          python - <<'PY'
+          import sqlite3
+          want = {
+            "store_id","terminal_id","user_open_id","opened_at","status",
+            "user_close_id","closed_at","idempotency_open","idempotency_close",
+            "audit_ref","opened_by","closed_by","note",
+            "expected_cash","counted_pre","counted_final","diff_cash","tolerance",
+            "idem_open","idem_close"
+          }
+          con = sqlite3.connect("erp.db")
+          cur = con.cursor()
+          cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pos_session'")
+          assert cur.fetchone(), "Missing table: pos_session"
+          cur.execute("PRAGMA table_info('pos_session')")
+          have = {row[1] for row in cur.fetchall()}
+          print("pos_session columns:", sorted(have))
+          missing = list(want - have)
+          assert not missing, f"pos_session missing columns: {missing}"
+          con.close()
+          PY
+
+      - name: Start API (background with logs)
+        run: |
+          set -e
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level debug > uvicorn.log 2>&1 &
           echo $! > uvicorn.pid
-        env:
-          PYTHONPATH: .
+
       - name: Wait for /health
         run: |
+          set -e
           for i in {1..40}; do
-            if curl -fsS http://127.0.0.1:8010/health > /dev/null; then
+            if curl -fsS http://127.0.0.1:8010/health >/dev/null; then
               echo "API ready"; exit 0
             fi
             sleep 1
           done
-          echo "API did not start in time" >&2; exit 1
-      - name: Run tests
-        run: pytest -q
+          echo "API did not start in time"
+          echo "==== uvicorn.log (tail) ===="
+          tail -n 200 uvicorn.log || true
+          exit 1
 
+      - name: Smoke /session/open (capture body)
+        run: |
+          set -e
+          echo '{"pos_id":1,"cashier_id":1,"opening_cash":0}' | tee /tmp/open_body.txt
+          http_code=$(curl -sS -o /tmp/open_resp.txt -w "%{http_code}" -H "Content-Type: application/json" -d @/tmp/open_body.txt http://127.0.0.1:8010/session/open || true)
+          echo "Status: $http_code"
+          echo "---- raw body ----"
+          cat /tmp/open_resp.txt || true
+          echo
+          python - <<'PY' || true
+          try:
+              txt=open("/tmp/open_resp.txt","r",encoding="utf-8").read()
+              obj=json.loads(txt)
+              print("---- pretty JSON ----")
+              import pprint; pprint.pp(obj)
+          except Exception as e:
+              print("No valid JSON body:", e)
+          PY
+
+      - name: Run tests
+        run: pytest -q --maxfail=1 --disable-warnings
+
+      - name: Upload artifacts (always)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts
+          path: |
+            uvicorn.log
+            erp.db
+            /tmp/open_body.txt
+            /tmp/open_resp.txt

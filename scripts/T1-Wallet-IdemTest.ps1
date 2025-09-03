@@ -26,7 +26,7 @@ function Extract-Balance {
       $j = $obj | ConvertFrom-Json
       if ($j -and $j.PSObject.Properties.Name -contains 'balance') { return [decimal]$j.balance }
       if ($j -is [decimal] -or $j -is [int]) { return [decimal]$j }
-    } catch { 
+    } catch {
       try { return [decimal]$obj } catch { return $null }
     }
   } elseif ($obj.PSObject.Properties.Name -contains 'balance') {

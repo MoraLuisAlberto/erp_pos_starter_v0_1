@@ -1,11 +1,14 @@
-from pydantic import BaseModel, Field
 from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
 
 class ScanLine(BaseModel):
     code: str
     qty: float = 1
     price: float
     discount: float = 0.0
+
 
 class SaleCreate(BaseModel):
     store_id: int
@@ -15,6 +18,7 @@ class SaleCreate(BaseModel):
     lines: List[ScanLine] = Field(default_factory=list)
     coupon_code: Optional[str] = None
 
+
 class PaymentIn(BaseModel):
     sale_id: int
     method: str
@@ -23,10 +27,12 @@ class PaymentIn(BaseModel):
     card_last4: Optional[str] = None
     ext_ref: Optional[str] = None
 
+
 class CartIn(BaseModel):
     store_id: int
     user_id: int
     payload: dict
+
 
 class CouponCheck(BaseModel):
     code: str

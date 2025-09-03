@@ -1,7 +1,9 @@
 from fastapi import APIRouter
+
 from app.core.config import settings
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
 
 @router.get("/limits", summary="Límites de cola offline")
 def sync_limits():

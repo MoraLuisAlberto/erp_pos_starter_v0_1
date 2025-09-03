@@ -1,11 +1,11 @@
-﻿[tool.black]
+[tool.black]
 line-length = 100
 target-version = ["py312"]
 
 [tool.ruff]
 line-length = 100
 select = ["E","F","I","UP","B","C4","PIE"]
-ignore = ["E501"]  # black maneja long lines
+ignore = ["E501"]
 
 [tool.ruff.isort]
 known-first-party = ["app"]

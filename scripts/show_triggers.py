@@ -1,5 +1,8 @@
+import json
+import os
+import sqlite3
+
 from app.db import engine
-import os, sqlite3, json
 
 db = engine.url.database
 if not os.path.isabs(db):

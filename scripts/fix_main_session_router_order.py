@@ -1,10 +1,11 @@
-import io, os
+import os
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 MAIN = os.path.join(ROOT, "app", "main.py")
 
 IMPORT_LINE = "from app.routers import session as _session_router_auto"
-INCLUDE_LINE = "app.include_router(_session_router_auto.router, prefix=\"/pos\")"
+INCLUDE_LINE = 'app.include_router(_session_router_auto.router, prefix="/pos")'
+
 
 def find_index(lines, predicate, max_scan=None):
     rng = range(len(lines)) if max_scan is None else range(min(max_scan, len(lines)))
@@ -13,8 +14,9 @@ def find_index(lines, predicate, max_scan=None):
             return i
     return None
 
+
 def run():
-    with io.open(MAIN, "r", encoding="utf-8") as f:
+    with open(MAIN, encoding="utf-8") as f:
         src = f.read()
     lines = src.splitlines()
 
@@ -28,11 +30,17 @@ def run():
     # B) Asegura include_router (si no está, lo metemos tras la creación de app)
     inc_idx = find_index(lines, lambda ln: "include_router" in ln and "_session_router_auto" in ln)
     if inc_idx is None:
-        app_idx = find_index(lines, lambda ln: "FastAPI(" in ln and "=" in ln and "app" in ln.split("=",1)[0], max_scan=200)
+        app_idx = find_index(
+            lines,
+            lambda ln: "FastAPI(" in ln and "=" in ln and "app" in ln.split("=", 1)[0],
+            max_scan=200,
+        )
         insert_at = (app_idx + 1) if app_idx is not None else len(lines)
         lines.insert(insert_at, INCLUDE_LINE)
         changed = True
-        inc_idx = find_index(lines, lambda ln: "include_router" in ln and "_session_router_auto" in ln)
+        inc_idx = find_index(
+            lines, lambda ln: "include_router" in ln and "_session_router_auto" in ln
+        )
 
     # C) Garantiza orden: import antes del include
     imp_idx = find_index(lines, lambda ln: ln.strip() == IMPORT_LINE)
@@ -45,16 +53,19 @@ def run():
     if imp_idx > inc_idx:
         # mover import arriba del include
         line = lines.pop(imp_idx)
-        inc_idx = find_index(lines, lambda ln: "include_router" in ln and "_session_router_auto" in ln)  # recomputa
+        inc_idx = find_index(
+            lines, lambda ln: "include_router" in ln and "_session_router_auto" in ln
+        )  # recomputa
         lines.insert(inc_idx, line)
         changed = True
 
     if changed:
-        with io.open(MAIN, "w", encoding="utf-8", newline="\n") as f:
+        with open(MAIN, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines))
         print("PATCHED: main.py (import/include ordenados)")
     else:
         print("OK: main.py ya estaba correcto")
+
 
 if __name__ == "__main__":
     run()

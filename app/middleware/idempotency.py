@@ -1,4 +1,7 @@
-import asyncio, time, json
+import asyncio
+import json
+import time
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -7,6 +10,7 @@ ALLOW = {
     "/pos/order/pay-discounted": "payment_id",
     "/wallet/credit": "tx_id",
 }
+
 
 class _Cache:
     def __init__(self, ttl=3600, max_entries=2048):
@@ -31,6 +35,7 @@ class _Cache:
                 self._store.pop(next(iter(self._store)))
             self._store[key] = val
 
+
 class _KeyedLocks:
     def __init__(self):
         self._locks = {}
@@ -45,12 +50,15 @@ class _KeyedLocks:
         await lock.acquire()
         return lock
 
+
 def _drop_content_length(headers: dict) -> dict:
     # Quita cualquier Content-Length (casing-insensitive)
     return {k: v for k, v in headers.items() if k.lower() != "content-length"}
 
+
 _idem_cache = _Cache(ttl=3600)
 _keyed_locks = _KeyedLocks()
+
 
 class PayDiscountedIdempotency(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -134,17 +142,21 @@ class PayDiscountedIdempotency(BaseHTTPMiddleware):
                     should_cache = False
 
             if should_cache:
-                await _idem_cache.set(cache_key, {
-                    "status": new_resp.status_code,
-                    "headers": dict(new_resp.headers),
-                    "media_type": new_resp.media_type,
-                    "body": body_bytes,
-                    "exp": time.time() + 3600,
-                })
+                await _idem_cache.set(
+                    cache_key,
+                    {
+                        "status": new_resp.status_code,
+                        "headers": dict(new_resp.headers),
+                        "media_type": new_resp.media_type,
+                        "body": body_bytes,
+                        "exp": time.time() + 3600,
+                    },
+                )
 
             return new_resp
         finally:
             lock.release()
+
 
 def install_idempotency(app):
     app.add_middleware(PayDiscountedIdempotency)

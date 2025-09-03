@@ -247,6 +247,7 @@ $('#btnDaily').onclick = async () => {
 </body>
 </html>"""
 
+
 @router.get("/ui/pos-wallet", response_class=HTMLResponse)
 def ui_pos_wallet():
     return HTMLResponse(content=HTML)

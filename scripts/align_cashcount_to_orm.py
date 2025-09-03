@@ -1,11 +1,15 @@
-import os, sqlite3
+import os
+import sqlite3
+
+from sqlalchemy import Column
+
 from app.db import engine
 from app.models.pos_session import CashCount
-from sqlalchemy import Column
 
 db_path = engine.url.database
 if not os.path.isabs(db_path):
     db_path = os.path.abspath(db_path)
+
 
 # Mapa muy básico de tipos SQLAlchemy -> SQLite
 def to_sqlite_decl(col: Column) -> str:
@@ -21,7 +25,9 @@ def to_sqlite_decl(col: Column) -> str:
     # string/varchar
     return f"{col.name} TEXT"
 
-conn = sqlite3.connect(db_path); cur = conn.cursor()
+
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
 table = CashCount.__table__
 cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table.name,))
 exists = cur.fetchone() is not None
@@ -42,5 +48,6 @@ else:
         cur.execute(sql)
         print(f"ALIGN: added column -> {decl}")
 
-conn.commit(); conn.close()
+conn.commit()
+conn.close()
 print("ALIGN_OK")

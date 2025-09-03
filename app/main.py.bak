@@ -30,7 +30,3 @@ app.include_router(coupon_router.router,    prefix="/pos/coupon", tags=["coupon"
 app.include_router(coupon_apply.router, prefix="/pos/order",  tags=["pos"])
 app.include_router(pay_guarded.router, prefix="/pos/order", tags=["pos"])
 app.include_router(pay_alias.router,    prefix="/pos/order", tags=["pos"])
-
-
-
-

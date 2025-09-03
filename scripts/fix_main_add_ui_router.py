@@ -1,12 +1,15 @@
-import io, os, re
+import os
+import re
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 MAIN = os.path.join(ROOT, "app", "main.py")
 
 IMP = "from app.routers import ui as _ui_router"
 INC = "app.include_router(_ui_router.router)"
 
+
 def run():
-    with open(MAIN, "r", encoding="utf-8") as f:
+    with open(MAIN, encoding="utf-8") as f:
         src = f.read()
     changed = False
     if IMP not in src:
@@ -24,5 +27,7 @@ def run():
     with open(MAIN, "w", encoding="utf-8", newline="\n") as f:
         f.write(src)
     print("OK: main.py actualizado" if changed else "OK: main.py ya tenía UI router")
+
+
 if __name__ == "__main__":
     run()

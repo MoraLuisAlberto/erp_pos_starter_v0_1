@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     app_name: str = Field(default="ERP POS", alias="APP_NAME")
@@ -17,6 +18,9 @@ class Settings(BaseSettings):
     offline_max_hours: int = Field(default=48, alias="OFFLINE_MAX_HOURS")
     offline_soft_ops: int = Field(default=400, alias="OFFLINE_SOFT_OPS")
     offline_soft_hours: int = Field(default=36, alias="OFFLINE_SOFT_HOURS")
+
     class Config:
         env_file = ".env"
+
+
 settings = Settings()
