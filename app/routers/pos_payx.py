@@ -5,7 +5,28 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
+# Usamos las mismas utilidades de cupones
 from app.routers.pos_coupons import compute_coupon_result, coupon_usage_inc
+
+# Intentamos reutilizar el escritor de auditoría del módulo de cupones.
+# Si por alguna razón no existe, definimos un fallback local que escribe al mismo archivo.
+try:
+    from app.routers.pos_coupons import _audit_write  # type: ignore
+except Exception:  # pragma: no cover - fallback defensivo
+    import json
+    from pathlib import Path
+
+    _AUDIT_FILE = Path("data") / "coupons_audit.jsonl"
+
+    def _audit_write(ev: dict) -> None:
+        """Fallback simple: escribe una línea JSONL en el mismo archivo que usa el reporte."""
+        _AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Asegura timestamp y que sea JSON-serializable
+        if "ts" not in ev:
+            ev["ts"] = datetime.utcnow().isoformat()
+        with open(_AUDIT_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+
 
 router = APIRouter(prefix="/pos/order", tags=["pos", "payx"])
 
@@ -119,6 +140,8 @@ def pay_discounted(
         if not coupon_usage_inc(payload.coupon_code.strip().upper(), payload.customer_id):
             # No consumir 2 veces si justo falló consumo.
             raise HTTPException(status_code=422, detail="invalid_coupon: usage_limit_reached")
+
+        # Auditoría en memoria (legacy)
         _AUDIT.append(
             {
                 "at": datetime.utcnow().isoformat(),
@@ -129,6 +152,24 @@ def pay_discounted(
                 "idem": x_idem,
             }
         )
+
+        # Auditoría persistente (archivo compartido con el reporte)
+        try:
+            _audit_write(
+                {
+                    "ts": datetime.utcnow().isoformat(),
+                    "kind": "paid",
+                    "code": payload.coupon_code.strip().upper(),
+                    "customer_id": payload.customer_id,
+                    "order_id": payload.order_id,
+                    "payment_id": payment_id,
+                    "idempotency_key": x_idem,
+                    # Evitamos Decimal en JSON para no romper dumps; el reporte solo cuenta "kind".
+                }
+            )
+        except Exception:
+            # No rompemos el pago si la auditoría falla.
+            pass
 
     if x_idem:
         _IDEM[x_idem] = resp
