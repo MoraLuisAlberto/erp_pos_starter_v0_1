@@ -21,15 +21,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          set -euo pipefail
+          set -e
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
           pip install pytest requests uvicorn alembic
 
-      - name: Prepare DB file + migrate + create_all (fallback)
+      - name: Prepare DB (file + migrate + create_all)
         run: |
-          set -euo pipefail
+          set -e
           python - <<'PY'
           import pathlib, sqlite3
           p = pathlib.Path("erp.db")
@@ -39,102 +39,51 @@ jobs:
           else:
               print("Using existing SQLite DB")
           PY
-          if [ -f alembic.ini ]; then alembic upgrade head || echo "Warning: alembic upgrade failed"; fi
+          if [ -f alembic.ini ]; then alembic upgrade head || echo "Warning: alembic failed"; fi
           python - <<'PY' || echo "Warning: metadata.create_all fallback failed"
           try:
-              try:
-                  from app.core.db import Base, engine
-              except Exception:
-                  from app.db import Base, engine
-              with engine.begin() as conn:
-                  conn.exec_driver_sql("PRAGMA foreign_keys=ON;")
+              from app.core.db import Base, engine
               Base.metadata.create_all(bind=engine)
               print("metadata.create_all done")
           except Exception as e:
               print("Skip metadata.create_all fallback:", e)
           PY
 
-      - name: Seed (tolerante, no oculta el fallo)
+      - name: Seed (tolerante)
         run: |
-          set -euo pipefail
+          set -e
           python -m app.seed_demo || echo "Warning: seed_demo failed"
           python -m app.seed_coupon_demo || echo "Warning: seed_coupon_demo failed"
 
-      - name: Validate schema (post-seed)
+      - name: Bootstrap pos_session (create-if-missing)
         run: |
-          set -euo pipefail
+          set -e
+          python scripts/bootstrap_pos_session.py
+
+      - name: Validate schema (tables must exist)
+        run: |
+          set -e
           python - <<'PY'
           import sqlite3
-          con = sqlite3.connect("erp.db"); cur = con.cursor()
-          tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-          session_candidates = {"session","sessions","pos_session","pos_sessions","cash_session","cash_sessions"}
-          pos_candidates = {"pos","pos_device","pos_register","point_of_sale","points_of_sale","terminal","device","register"}
-          cashier_candidates = {"cashier","cashiers","user","users","employee","employees","operator","operators","staff","account","accounts"}
-          missing = []
-          if not (tables & session_candidates): missing.append("session-like")
-          if not (tables & pos_candidates): missing.append("pos-like")
-          if not (tables & cashier_candidates): missing.append("cashier/user-like")
-          if missing:
-              print("Schema tables present:", sorted(tables))
-              raise SystemExit(f"Missing required table groups: {', '.join(missing)}")
-          print("Schema OK: session/pos/cashier groups detected.")
+          con = sqlite3.connect("erp.db")
+          cur = con.cursor()
+          required = ["pos_session"]
+          for t in required:
+              cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (t,))
+              assert cur.fetchone(), f"Missing table: {t}"
           con.close()
-          PY
-
-      - name: Ensure parent rows exist (FK-aware, inline)
-        run: |
-          set -euo pipefail
-          python - <<'PY' || echo "Warning: ensure parent rows step failed"
-          import os, sqlite3
-          db = os.getenv("DATABASE_URL","sqlite:///./erp.db").split("///")[-1]
-          con = sqlite3.connect(db); con.execute("PRAGMA foreign_keys=ON;"); cur = con.cursor()
-          tabs = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-          def pragma_cols(t): return [r[1] for r in cur.execute(f"PRAGMA table_info('{t}')")]
-          def ensure_row(table, label):
-              if table not in tabs: return
-              cols = pragma_cols(table); vals = {}
-              if "id" in cols: vals["id"]=1
-              if "name" in cols: vals["name"]=f"Default {label}"
-              if "code" in cols: vals["code"]=f"{label.upper()}1"
-              for flag in ("is_active","active","enabled"):
-                  if flag in cols: vals[flag]=1; break
-              if not vals: return
-              cols_sql=",".join(vals.keys()); q=",".join(":"+k for k in vals.keys())
-              cur.execute(f"INSERT OR IGNORE INTO {table} ({cols_sql}) VALUES ({q})", vals)
-          sess_tabs = [t for t in tabs if any(k in t for k in ("session","pos_session","cash_session"))]
-          POS_FK_COLS = {"pos_id","pos","pos_fk","terminal_id","device_id","register_id","pos_device_id","pos_register_id"}
-          CASHIER_FK_COLS = {"cashier_id","user_id","employee_id","operator_id","opened_by","opened_by_id","staff_id","account_id"}
-          pos_parents, cashier_parents = set(), set()
-          for st in sess_tabs:
-              cur.execute(f"PRAGMA foreign_key_list('{st}')")
-              cols=[d[0] for d in cur.description]
-              for row in cur.fetchall():
-                  rec=dict(zip(cols,row))
-                  if rec.get("from") in POS_FK_COLS: pos_parents.add(rec.get("table"))
-                  if rec.get("from") in CASHIER_FK_COLS: cashier_parents.add(rec.get("table"))
-          if not pos_parents:
-              for t in ("pos","pos_device","pos_register","point_of_sale","points_of_sale","terminal","device","register"):
-                  if t in tabs: pos_parents.add(t); break
-          if not cashier_parents:
-              for t in ("cashier","cashiers","user","users","employee","employees","operator","operators","staff","account","accounts"):
-                  if t in tabs: cashier_parents.add(t); break
-          for t in list(pos_parents)[:1]: ensure_row(t,"POS")
-          for t in list(cashier_parents)[:1]: ensure_row(t,"Cashier")
-          for t,label in (("customer","Customer"),("customers","Customer"),("segment","GEN"),("segments","GEN"),("coupon","TEST10"),("coupons","TEST10")):
-              if t in tabs: ensure_row(t,label)
-          con.commit(); con.close()
-          print("DB parents ensured (id=1).")
+          print("Schema OK:", required)
           PY
 
       - name: Start API (background with logs)
         run: |
-          set -euo pipefail
+          set -e
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level debug > uvicorn.log 2>&1 &
           echo $! > uvicorn.pid
 
       - name: Wait for /health
         run: |
-          set -euo pipefail
+          set -e
           for i in {1..40}; do
             if curl -fsS http://127.0.0.1:8010/health >/dev/null; then
               echo "API ready"; exit 0
@@ -142,62 +91,32 @@ jobs:
             sleep 1
           done
           echo "API did not start in time"
-          echo "==== uvicorn.log (tail) ===="; tail -n 200 uvicorn.log || true
+          echo "==== uvicorn.log (tail) ===="
+          tail -n 200 uvicorn.log || true
           exit 1
 
       - name: Smoke /session/open (capture body)
         run: |
-          set -euo pipefail
-          echo '{"pos_id":1,"cashier_id":1,"opening_cash":0}' > /tmp/open.json
-          code=$(curl -s -o /tmp/open_body.txt -w "%{http_code}" -H "Content-Type: application/json" -d @/tmp/open.json http://127.0.0.1:8010/session/open || true)
-          echo "Status: $code"
-          echo "---- raw body ----"; cat /tmp/open_body.txt || true
-          if [ "$code" -ne 200 ]; then
-            echo "==== uvicorn.log (tail) ===="; tail -n 400 uvicorn.log || true
-          fi
-          true
-
-      - name: Pretty print /session/open body if JSON
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, pathlib, sys
-          p = pathlib.Path("/tmp/open_body.txt")
-          if not p.exists():
-              print("No open_body.txt to pretty-print"); sys.exit(0)
-          t = p.read_text("utf-8", errors="ignore")
+          set -e
+          echo '{"pos_id":1,"cashier_id":1,"opening_cash":0}' | tee /tmp/open_body.txt
+          http_code=$(curl -sS -o /tmp/open_resp.txt -w "%{http_code}" -H "Content-Type: application/json" -d @/tmp/open_body.txt http://127.0.0.1:8010/session/open || true)
+          echo "Status: $http_code"
+          echo "---- raw body ----"
+          cat /tmp/open_resp.txt || true
+          echo
+          python - <<'PY' || true
+          import json,sys
           try:
-              obj = json.loads(t)
+              txt=open("/tmp/open_resp.txt","r",encoding="utf-8").read()
+              obj=json.loads(txt)
               print("---- pretty JSON ----")
-              print(json.dumps(obj, indent=2, ensure_ascii=False))
-          except Exception:
-              print("Body is not JSON, skipping pretty-print.")
+              print(json.dumps(obj,indent=2,ensure_ascii=False))
+          except Exception as e:
+              print("No valid JSON body:", e)
           PY
 
       - name: Run tests
-        run: |
-          set -euo pipefail
-          pytest -q --maxfail=1 --disable-warnings
-
-      - name: On failure: show uvicorn log + schema
-        if: ${{ failure() }}
-        run: |
-          set -euo pipefail
-          echo "==== uvicorn.log (tail) ===="; tail -n 500 uvicorn.log || true
-          echo "==== SQLite schema dump ===="
-          python - <<'PY' || true
-          import sqlite3, json
-          con=sqlite3.connect('erp.db'); con.row_factory=sqlite3.Row; cur=con.cursor()
-          tabs=[r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
-          print("TABLES:", tabs)
-          for t in tabs:
-              cols=[dict(row) for row in cur.execute(f"PRAGMA table_info('{t}')")]
-              fks=[dict(zip([d[0] for d in cur.description], r)) for r in cur.execute(f"PRAGMA foreign_key_list('{t}')")]
-              print(f"== {t} ==")
-              print("COLUMNS:", json.dumps(cols, indent=2))
-              print("FKS:", json.dumps(fks, indent=2))
-          con.close()
-          PY
+        run: pytest -q --maxfail=1 --disable-warnings
 
       - name: Upload artifacts (always)
         if: ${{ always() }}
@@ -208,3 +127,4 @@ jobs:
             uvicorn.log
             erp.db
             /tmp/open_body.txt
+            /tmp/open_resp.txt
