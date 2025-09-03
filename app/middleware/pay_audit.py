@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 import threading
 
 from starlette.concurrency import iterate_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
-AUDIT_FILE = Path(__file__).resolve().parents[2] / "data" / "coupons_audit.jsonl"
+# *** Unificar archivo de auditoría ***
+# Usamos el MISMO archivo que define el módulo de cupones (fuente de verdad).
+from app.routers.pos_coupons import _AUDIT_FILE as AUDIT_FILE
+
 _LOCK = threading.Lock()
 
 
@@ -51,10 +53,12 @@ class PayAuditMiddleware(BaseHTTPMiddleware):
             if response.status_code != 200:
                 return response
 
+            # Captura el body y reinyéctalo para no consumir el stream
             body_chunks = [section async for section in response.body_iterator]
             body_bytes = b"".join(body_chunks)
             response.body_iterator = iterate_in_threadpool(iter([body_bytes]))
 
+            # Parse JSON
             data = {}
             try:
                 data = json.loads(body_bytes.decode("utf-8"))
@@ -66,7 +70,13 @@ class PayAuditMiddleware(BaseHTTPMiddleware):
             payment_id = data.get("payment_id")
             amount = data.get("amount")
             base_total = order.get("subtotal") or order.get("total")
-            splits = data.get("splits")
+            # Si no viene "amount", intenta sumar splits (robustez extra)
+            if amount is None:
+                try:
+                    splits = data.get("splits") or []
+                    amount = sum(float(s.get("amount") or 0) for s in splits)
+                except Exception:
+                    amount = None
 
             key = request.headers.get("x-idempotency-key") or request.headers.get(
                 "X-Idempotency-Key"
@@ -76,8 +86,8 @@ class PayAuditMiddleware(BaseHTTPMiddleware):
                 ev = {
                     "ts": datetime.now(timezone.utc).isoformat(),
                     "kind": "paid",
-                    "code": None,
-                    "customer_id": None,
+                    "code": None,  # si luego tienes el código, puedes rellenarlo aquí
+                    "customer_id": None,  # idem para cliente
                     "order_id": order_id,
                     "payment_id": payment_id,
                     "idempotency_key": key,
