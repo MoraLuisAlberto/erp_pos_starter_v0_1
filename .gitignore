@@ -16,3 +16,6 @@ scripts/logs/
 /data/*.json
 /data/*.jsonl
 !data/README.md
+
+# local helper
+scripts/find_endpoints.py
