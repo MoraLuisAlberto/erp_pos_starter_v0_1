@@ -12,9 +12,9 @@ __pycache__/
 data/*.log
 scripts/logs/
 
-# runtime data
-/data/*.json
-/data/*.jsonl
+# runtime data (no versionar)
+data/*.json
+data/*.jsonl
 !data/README.md
 
 # local helper
@@ -24,3 +24,6 @@ scripts/find_endpoints.py
 *.db-shm
 *.db-wal
 *.db-journal
+
+# env file
+.env
