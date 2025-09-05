@@ -24,3 +24,4 @@ scripts/find_endpoints.py
 *.db-shm
 *.db-wal
 *.db-journal
+.env
