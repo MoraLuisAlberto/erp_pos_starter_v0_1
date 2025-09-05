@@ -13,7 +13,6 @@ data/*.log
 scripts/logs/
 
 # runtime data (no versionar)
-data/*.json
 data/*.jsonl
 !data/README.md
 
