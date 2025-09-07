@@ -1,11 +1,12 @@
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional
-from pydantic import Field AliasChoices
+from pydantic import Field
 import json
 
 from fastapi import APIRouter, Body, Header, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
+
 
 # Usamos las mismas utilidades de cupones
 from app.routers.pos_coupons import compute_coupon_result, coupon_usage_inc
@@ -56,9 +57,19 @@ class PayDiscountedRequest(BaseModel):
     splits: Optional[List[PaySplit]] = None
     method: Optional[str] = None
     amount: Optional[Decimal] = None
-    coupon_code: Optional[str] = Field(default=None, validation_alias=AliasChoices("coupon_code","code"))
+    coupon_code: Optional[str] = Field(default=None)
     base_total: Optional[Decimal] = None
     customer_id: Optional[int] = None  # requerido si usa cupón
+          @model_validator(mode="before")
+      @classmethod
+      def _unify_coupon_code(cls, v):
+          # Acepta {"coupon_code": "..."} o {"code": "..."} y lo guarda en coupon_code
+          if isinstance(v, dict):
+              code = v.get("coupon_code") or v.get("code")
+              if code is not None:
+                  v["coupon_code"] = str(code)
+          return v
+
 
 
 # Idempotencia + auditoría en memoria (demo)
