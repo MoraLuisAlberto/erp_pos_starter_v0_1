@@ -72,8 +72,6 @@ class PayDiscountedRequest(BaseModel):
         return v
 
 
-
-
 # Idempotencia + auditoría en memoria (demo)
 _IDEM: Dict[str, Dict] = {}
 _PAY_SEQ = 0
@@ -118,11 +116,12 @@ def pay_discounted(
     # Si no hay splits, construimos uno “cash” con el total
     splits = payload.splits or [PaySplit(method="cash", amount=expected_total)]
 
-
     # 2) Validación/consumo de cupón SOLO si el cliente envió cupón.
-    #    Si el cliente ya envió el total final, NO volvemos a descontar (evita doble descuento).
-    if payload.coupon_code:
-        ok = coupon_usage_inc(payload.coupon_code.strip().upper(), payload.customer_id)
+    #    Unificamos 'coupon_code' y 'code' por si algún cliente envía 'code'.
+    coupon_value = (payload.coupon_code or getattr(payload, "code", None))
+    coupon_value = coupon_value.strip().upper() if coupon_value else None
+    if coupon_value:
+        ok = coupon_usage_inc(coupon_value, payload.customer_id)
         if not ok:
             raise HTTPException(status_code=422, detail="invalid_coupon: usage_limit_reached")
 
@@ -147,15 +146,14 @@ def pay_discounted(
         "splits": [{"method": s.method, "amount": str(money(s.amount))} for s in splits],
     }
 
-      # Exponer cupón en la respuesta (trazabilidad + middleware)
-      resp["coupon_code"] = ((payload.coupon_code or "").strip().upper() or None)
-      resp["code"] = resp["coupon_code"]
-
+    # Exponer cupón en la respuesta (trazabilidad + middleware)
+    resp["coupon_code"] = coupon_value
+    resp["code"] = coupon_value
 
     # 4) Auditorías
     _AUDIT.append({
         "at": datetime.utcnow().isoformat(),
-        "coupon_code": (payload.coupon_code or "").strip().upper() or None,
+        "coupon_code": coupon_value,
         "customer_id": payload.customer_id,
         "order_id": payload.order_id,
         "payment_id": payment_id,
@@ -166,7 +164,7 @@ def pay_discounted(
         _audit_write({
             "ts": datetime.utcnow().isoformat(),
             "kind": "paid",
-            "code": (payload.coupon_code or "").strip().upper() or None,
+            "code": coupon_value,
             "customer_id": payload.customer_id,
             "order_id": payload.order_id,
             "payment_id": payment_id,
@@ -185,4 +183,3 @@ def pay_discounted(
         _IDEM[x_idem] = resp
 
     return resp
-
