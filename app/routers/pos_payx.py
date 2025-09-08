@@ -60,15 +60,16 @@ class PayDiscountedRequest(BaseModel):
     coupon_code: Optional[str] = Field(default=None)
     base_total: Optional[Decimal] = None
     customer_id: Optional[int] = None  # requerido si usa cupón
-      @model_validator(mode="before")
-      @classmethod
-      def _unify_coupon_code(cls, v):
-          # Acepta {"coupon_code": "..."} o {"code": "..."} y lo guarda en coupon_code
-          if isinstance(v, dict):
-              code = v.get("coupon_code") or v.get("code")
-              if code is not None:
-                  v["coupon_code"] = str(code)
-          return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unify_coupon_code(cls, v):
+        # Acepta {"coupon_code": "..."} o {"code": "..."} y lo guarda en coupon_code
+        if isinstance(v, dict):
+            code = v.get("coupon_code") or v.get("code")
+            if code is not None:
+                v["coupon_code"] = str(code)
+        return v
 
 
 
