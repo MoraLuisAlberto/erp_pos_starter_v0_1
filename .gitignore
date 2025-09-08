@@ -27,3 +27,7 @@ scripts/find_endpoints.py
 
 # env file
 .env
+
+# Aider artifacts
+.aider*
+.aider.tags.cache.v4/
