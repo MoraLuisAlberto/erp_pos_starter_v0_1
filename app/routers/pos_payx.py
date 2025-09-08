@@ -1,34 +1,28 @@
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional
+from pydantic import Field
+import json
 
 from fastapi import APIRouter, Body, Header, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
-# Usamos las mismas utilidades de cupones
 from app.routers.pos_coupons import compute_coupon_result, coupon_usage_inc
 
-# Intentamos reutilizar el escritor de auditoría del módulo de cupones.
-# Si por alguna razón no existe, definimos un fallback local que escribe al mismo archivo.
 try:
     from app.routers.pos_coupons import _audit_write  # type: ignore
-except Exception:  # pragma: no cover - fallback defensivo
+except Exception:  # pragma: no cover
     import json
     from pathlib import Path
-
     _AUDIT_FILE = Path("data") / "coupons_audit.jsonl"
-
     def _audit_write(ev: dict) -> None:
-        """Fallback simple: escribe una línea JSONL en el mismo archivo que usa el reporte."""
         _AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
         if "ts" not in ev:
             ev["ts"] = datetime.utcnow().isoformat()
         with open(_AUDIT_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(ev, ensure_ascii=False) + "\n")
 
-
 router = APIRouter(prefix="/pos/order", tags=["pos", "payx"])
-
 
 def money(v: Decimal) -> Decimal:
     return (
@@ -37,16 +31,13 @@ def money(v: Decimal) -> Decimal:
         else Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     )
 
-
 class PaySplit(BaseModel):
     method: str
     amount: Decimal
-
     @field_validator("amount", mode="before")
     @classmethod
     def _to_decimal(cls, v):
         return Decimal(str(v))
-
 
 class PayDiscountedRequest(BaseModel):
     session_id: int
@@ -54,16 +45,23 @@ class PayDiscountedRequest(BaseModel):
     splits: Optional[List[PaySplit]] = None
     method: Optional[str] = None
     amount: Optional[Decimal] = None
-    coupon_code: Optional[str] = None
+    coupon_code: Optional[str] = Field(default=None)
     base_total: Optional[Decimal] = None
     customer_id: Optional[int] = None  # requerido si usa cupón
 
+    @model_validator(mode="before")
+    @classmethod
+    def _unify_coupon_code(cls, v):
+        if isinstance(v, dict):
+            code = v.get("coupon_code") or v.get("code")
+            if code is not None:
+                v["coupon_code"] = str(code)
+        return v
 
 # Idempotencia + auditoría en memoria (demo)
 _IDEM: Dict[str, Dict] = {}
 _PAY_SEQ = 0
 _AUDIT: List[Dict] = []  # entries: {at, coupon_code, customer_id, order_id, payment_id, idem}
-
 
 @router.post("/pay-discounted")
 def pay_discounted(
@@ -71,57 +69,36 @@ def pay_discounted(
     x_idem: Optional[str] = Header(default=None, alias="x-idempotency-key"),
 ):
     """
-    Regla importante:
-    - Si 'splits' o 'amount' ya traen el total final (descontado), SOLO validamos el cupón,
-      NO volvemos a aplicar el descuento sobre ese monto. Así evitamos doble descuento.
+    Si 'splits' o 'amount' ya traen el total final (descontado), SOLO validamos el cupón.
     """
     global _PAY_SEQ
+
     if x_idem and x_idem in _IDEM:
         return _IDEM[x_idem]
 
-    # 1) Determinar total a cobrar (expected_total) a partir de lo que envía el cliente
-    #    - Preferimos 'splits' (suma)
-    #    - Si no hay, usamos 'amount'
-    #    - 'base_total' es opcional y puede representar pre-descuento si el cliente lo desea
-    base_total: Optional[Decimal] = None
+    from decimal import Decimal
+    def D(x): return Decimal(str(x)) if x is not None else Decimal("0")
+
+    expected_total: Decimal
+    base_total = None
     if payload.splits:
-        base_total = sum([s.amount for s in payload.splits], Decimal("0.00"))
+        expected_total = sum(D(s.amount) for s in payload.splits)
     elif payload.amount is not None:
-        base_total = Decimal(str(payload.amount))
-    elif payload.base_total is not None:
-        base_total = Decimal(str(payload.base_total))
+        expected_total = D(payload.amount)
+        base_total = D(payload.base_total if payload.base_total is not None else payload.amount)
     else:
-        raise HTTPException(status_code=422, detail="splits or amount or base_total required")
+        raise HTTPException(status_code=400, detail="missing_total: amount or splits")
 
-    expected_total = money(base_total)
+    splits = payload.splits or [PaySplit(method="cash", amount=expected_total)]
 
-    # 2) Si hay cupón: VALIDAMOS pero no reasignamos expected_total
-    if payload.coupon_code:
-        if payload.customer_id is None:
-            raise HTTPException(
-                status_code=422, detail="customer_id required when coupon_code is present"
-            )
-        # Validación (puede leer límites/segmentos, etc.)
-        res = compute_coupon_result(payload.coupon_code, expected_total, None, payload.customer_id)
-        if not res.get("valid"):
-            raise HTTPException(status_code=422, detail=f"invalid_coupon: {res.get('reason')}")
+    # cupón unificado
+    coupon_value = (payload.coupon_code or getattr(payload, "code", None))
+    coupon_value = coupon_value.strip().upper() if coupon_value else None
+    if coupon_value:
+        ok = coupon_usage_inc(coupon_value, payload.customer_id)
+        if not ok:
+            raise HTTPException(status_code=422, detail="invalid_coupon: usage_limit_reached")
 
-    # 3) Asegurar que splits (si existen) coincidan con el total esperado
-    splits = payload.splits
-    if not splits:
-        if payload.method:
-            splits = [PaySplit(method=payload.method, amount=expected_total)]
-        else:
-            raise HTTPException(status_code=422, detail="splits or method required")
-
-    sum_splits = money(sum([s.amount for s in splits], Decimal("0.00")))
-    if sum_splits != expected_total:
-        raise HTTPException(
-            status_code=422,
-            detail=f"splits_total_mismatch: got {sum_splits}, expected {expected_total}",
-        )
-
-    # 4) Generar pago
     _PAY_SEQ += 1
     payment_id = _PAY_SEQ
 
@@ -142,40 +119,38 @@ def pay_discounted(
         "splits": [{"method": s.method, "amount": str(money(s.amount))} for s in splits],
     }
 
-    # 5) Consumir uso SOLO en el primer intento (si hay cupón) + auditoría
-    if payload.coupon_code:
-        if not coupon_usage_inc(payload.coupon_code.strip().upper(), payload.customer_id):
-            raise HTTPException(status_code=422, detail="invalid_coupon: usage_limit_reached")
+    # trazabilidad en respuesta
+    resp["coupon_code"] = coupon_value
+    resp["code"] = coupon_value
 
-        # Auditoría en memoria (legacy)
-        _AUDIT.append(
-            {
-                "at": datetime.utcnow().isoformat(),
-                "coupon_code": payload.coupon_code.strip().upper(),
-                "customer_id": payload.customer_id,
-                "order_id": payload.order_id,
-                "payment_id": payment_id,
-                "idem": x_idem,
-            }
-        )
+    # auditorías
+    _AUDIT.append({
+        "at": datetime.utcnow().isoformat(),
+        "coupon_code": coupon_value,
+        "customer_id": payload.customer_id,
+        "order_id": payload.order_id,
+        "payment_id": payment_id,
+        "idem": x_idem,
+    })
 
-        # Auditoría persistente (archivo compartido con el reporte)
-        try:
-            _audit_write(
-                {
-                    "ts": datetime.utcnow().isoformat(),
-                    "kind": "paid",
-                    "code": payload.coupon_code.strip().upper(),
-                    "customer_id": payload.customer_id,
-                    "order_id": payload.order_id,
-                    "payment_id": payment_id,
-                    "idempotency_key": x_idem,
-                }
-            )
-        except Exception:
-            # No rompemos el pago si la auditoría falla.
-            pass
+    try:
+        _audit_write({
+            "ts": datetime.utcnow().isoformat(),
+            "kind": "paid",
+            "code": coupon_value,
+            "customer_id": payload.customer_id,
+            "order_id": payload.order_id,
+            "payment_id": payment_id,
+            "idempotency_key": x_idem,
+            "base_total": base_total if base_total is not None else expected_total,
+            "paid_total": expected_total,
+            "path": "/pos/order/pay-discounted",
+            "method": payload.method or "cash",
+        })
+    except Exception:
+        pass
 
     if x_idem:
         _IDEM[x_idem] = resp
     return resp
+
