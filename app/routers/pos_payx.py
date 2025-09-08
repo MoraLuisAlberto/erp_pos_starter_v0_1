@@ -178,4 +178,11 @@ def pay_discounted(
 
     if x_idem:
         _IDEM[x_idem] = resp
+    # Exponer cupón en la respuesta (trazabilidad + middleware)
+    if "coupon_code" not in resp:
+        resp["coupon_code"] = ((payload.coupon_code or getattr(payload, "code", None) or "").strip().upper() or None)
+        resp["code"] = resp["coupon_code"]
     return resp
+    # Exponer cupón en la respuesta (trazabilidad + middleware)
+    resp["coupon_code"] = ((payload.coupon_code or getattr(payload, "code", None) or "").strip().upper() or None)
+    resp["code"] = resp["coupon_code"]

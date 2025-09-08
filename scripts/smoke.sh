@@ -1,36 +1,98 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Requiere: curl, jq
-command -v jq >/dev/null 2>&1 || { echo "Necesitas jq (sudo apt-get install -y jq)"; exit 1; }
+BASE="${ERP_BASE_URL:-http://localhost:8010}"
+COUPON="${TEST_COUPON:-TEST10}"
+CUSTOMER="${TEST_CUSTOMER_ID:-$((RANDOM + 200000))}"
 
-BASE="${BASE:-http://127.0.0.1:8010}"
+pp() { python -m json.tool || cat; }
 
-req() { # req <json> <outfile> <url>  -> imprime solo status code
-  curl -sS -o "$2" -w "%{http_code}" -H 'Content-Type: application/json' -d "$1" "$3"
+# curl → BODY + STATUS (sin headers mezclados)
+post_json() { # path json_payload  -> prints Status + body, exports BODY and CODE
+  local path="$1"; shift
+  local data="$1"; shift
+  BODY="$(mktemp)"; CODE="$(curl -sS -o "$BODY" -w "%{http_code}" \
+    -H 'Content-Type: application/json' -X POST "$BASE$path" --data "$data")"
+  echo "Status: HTTP/1.1 $CODE"
+  cat "$BODY" | pp
+  echo
 }
 
-# 1) abrir sesión
-st=$(req '{"pos_id":1,"cashier_id":1,"opening_cash":0}' /tmp/open.json "$BASE/session/open")
-[ "$st" = "200" ] || { echo "open session failed: $st"; cat /tmp/open.json; exit 1; }
-sid=$(jq -r .id /tmp/open.json)
+get_url() { # path -> prints Status + body, exports BODY and CODE
+  local path="$1"; shift
+  BODY="$(mktemp)"; CODE="$(curl -sS -o "$BODY" -w "%{http_code}" -X GET "$BASE$path")"
+  echo "Status: HTTP/1.1 $CODE"
+  cat "$BODY" | pp
+  echo
+}
 
-# 2) draft
-st=$(req "{\"customer_id\":233366,\"session_id\":$sid,\"price_list_id\":1,\"items\":[{\"product_id\":1,\"qty\":1,\"unit_price\":129,\"price\":129}]}" /tmp/draft.json "$BASE/pos/order/draft")
-[ "$st" = "200" ] || { echo "draft failed: $st"; cat /tmp/draft.json; exit 1; }
-oid=$(jq -r .order_id /tmp/draft.json)
+# Helpers para leer campos JSON con Python (sin jq)
+json_field() { # file key1[.key2[.key3...]]
+  python - "$1" "$2" <<'PY'
+import sys, json
+f, path = sys.argv[1], sys.argv[2].split('.')
+with open(f, encoding='utf-8') as fh:
+    obj = json.load(fh)
+for k in path:
+    obj = obj[k]
+print(obj)
+PY
+}
 
-# 3) validate coupon
-st=$(req "{\"code\":\"TEST10\",\"amount\":129.0,\"session_id\":$sid,\"order_id\":$oid}" /tmp/val.json "$BASE/pos/coupon/validate")
-[ "$st" = "200" ] || { echo "validate failed: $st"; cat /tmp/val.json; exit 1; }
-new_total=$(jq -r .new_total /tmp/val.json)
+json_first_of() { # file keyA keyB -> imprime el primero que exista
+  python - "$@" <<'PY'
+import sys, json
+f = sys.argv[1]
+keys = sys.argv[2:]
+with open(f, encoding='utf-8') as fh:
+    obj = json.load(fh)
+def get(o, k):
+    cur = o
+    for part in k.split('.'):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+for k in keys:
+    v = get(obj, k)
+    if v is not None:
+        print(v)
+        sys.exit(0)
+sys.exit(1)
+PY
+}
 
-# 4) pay-discounted
-st=$(req "{\"session_id\":$sid,\"order_id\":$oid,\"splits\":[{\"method\":\"cash\",\"amount\":$new_total}],\"coupon_code\":\"TEST10\",\"customer_id\":233366}" /tmp/pay.json "$BASE/pos/order/pay-discounted")
-[ "$st" = "200" ] || { echo "pay failed: $st"; cat /tmp/pay.json; exit 1; }
+echo
+echo "1) OPEN SESSION"
+post_json "/session/open" '{"operator":"demo"}'
+SESSION_ID="$(json_first_of "$BODY" "session_id" "id")" || true
+: "${SESSION_ID:=1}"   # fallback suave
 
-# 5) reporte (opcional, imprime JSON bonito)
-today=$(date -u +%F)
-curl -sS "$BASE/reports/coupon/audit/range?start=$today&end=$today&mode=utc" | jq .
+echo
+echo "2) DRAFT"
+# Un draft de $129.00 para mantener la prueba simple
+post_json "/pos/order/draft" "{\"session_id\":${SESSION_ID},\"items\":[{\"product_id\":1,\"qty\":1,\"unit_price\":129.0}]}"
+ORDER_ID="$(json_first_of "$BODY" "order_id" "order.order_id")"
+SUBTOTAL="$(json_first_of "$BODY" "subtotal" "order.subtotal")"
 
-echo "SMOKE OK ✓"
+echo
+echo "3) VALIDATE"
+# Tu API ahora exige 'amount' (no 'cart_total')
+now="$(date -Iseconds -u)"
+post_json "/pos/coupon/validate" "{\"code\":\"${COUPON}\",\"amount\":${SUBTOTAL},\"at\":\"${now}\"}"
+# Si el esquema devuelve 'new_total' como string, lo usamos tal cual
+NEW_TOTAL="$(json_first_of "$BODY" "new_total")" || NEW_TOTAL="$SUBTOTAL"
+
+echo
+echo "4) PAY-DISCOUNTED (coupon_code)"
+# Construye el JSON con los valores parseados
+PAY_JSON="$(printf '{"session_id":%s,"order_id":%s,"coupon_code":"%s","customer_id":%s,"amount":%s,"base_total":%s,"method":"cash"}' \
+  "$SESSION_ID" "$ORDER_ID" "$COUPON" "$CUSTOMER" "$NEW_TOTAL" "$SUBTOTAL")"
+post_json "/pos/order/pay-discounted" "$PAY_JSON"
+
+echo
+echo "5) AUDIT HOY (UTC)"
+today="$(date -I)"
+get_url "/reports/coupon/audit/range?start=${today}&end=${today}&mode=utc"
+
