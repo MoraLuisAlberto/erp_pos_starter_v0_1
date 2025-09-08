@@ -37,7 +37,6 @@ def test_time_windows_extra_edges():
     assert st == 200 and js["valid"] is True
 
 
-@pytest.mark.xfail(strict=False, reason="Validación de amount<=0 pendiente (no bloquear CI).")
 def test_amount_zero_or_negative_rejected():
     st, js = _post("/pos/coupon/validate", {"code": "TEST10", "amount": 0})
     assert st == 422 or (st == 200 and js.get("valid") is False)
