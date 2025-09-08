@@ -31,3 +31,8 @@ scripts/find_endpoints.py
 # Aider artifacts
 .aider*
 .aider.tags.cache.v4/
+
+# runtime wallet artifacts
+data/wallet.json
+data/wallet_idem.json
+data/wallet_ledger.jsonl

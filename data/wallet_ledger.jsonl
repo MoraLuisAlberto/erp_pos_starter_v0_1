@@ -1,7 +1,0 @@
-{"ts": "2025-08-27T19:49:03.559223Z", "customer_id": 233366, "kind": "credit", "amount": 10.0, "tx_id": 1}
-{"ts": "2025-08-27T19:49:03.647363Z", "customer_id": 233366, "kind": "credit", "amount": 5.0, "tx_id": 2}
-{"ts": "2025-08-27T20:13:03.700621Z", "customer_id": 233366, "kind": "credit", "amount": 10.0, "tx_id": 3}
-{"ts": "2025-08-27T20:28:37.706433Z", "customer_id": 233366, "kind": "credit", "amount": 10.0, "tx_id": 4}
-{"ts": "2025-08-27T20:33:17.561295Z", "customer_id": 233366, "kind": "credit", "amount": 10.0, "tx_id": 5}
-{"ts": "2025-08-27T20:36:38.192377Z", "customer_id": 233366, "kind": "credit", "amount": 10.0, "tx_id": 6}
-{"ts": "2025-08-27T20:36:38.256522Z", "customer_id": 233366, "kind": "credit", "amount": 5.0, "tx_id": 7}
