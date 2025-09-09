@@ -7,10 +7,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -20,44 +18,91 @@ jobs:
           python -m pip install -U pip
           pip install -r requirements.txt
 
-      - name: Prepare env and files
+      - name: Create .env for CI
         run: |
-          mkdir -p data
           cat > .env <<'EOF'
           HOST=127.0.0.1
           PORT=8010
-          DATABASE_URL=sqlite:///erp_ci.db
+          DATABASE_URL=sqlite:///./erp.db
           PYTHONPATH=.
           EOF
-          chmod +x scripts/run.sh
 
-      - name: Start API via run.sh (background) and wait until ready
+      - name: Check SQL files
         run: |
-          bash scripts/run.sh > uvicorn.log 2>&1 &
-          # espera a que /session/open responda 200
-          for i in {1..40}; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8010/session/open \
+          ls -la sql/ 2>/dev/null || echo "sql/ directory not found"
+          ls -la db_migrations/ 2>/dev/null || echo "db_migrations/ directory not found"
+
+      - name: Prepare SQLite schema
+        run: |
+          python - <<'PY'
+          import sqlite3, glob, os, sys
+          db = 'erp.db'
+          print(f"Connecting to {os.path.abspath(db)}")
+          con = sqlite3.connect(db)
+          cur = con.cursor()
+
+          files = sorted(glob.glob('sql/*.sql') + glob.glob('db_migrations/*.sql'))
+          if not files:
+              print('⚠️ No SQL files found under sql/ or db_migrations/.')
+              print('Creating pos_session table manually')
+              cur.executescript('''
+          CREATE TABLE IF NOT EXISTS pos_session (
+              id INTEGER PRIMARY KEY,
+              store_id INTEGER NOT NULL,
+              terminal_id INTEGER NOT NULL,
+              user_open_id INTEGER NOT NULL,
+              opened_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              status TEXT NOT NULL DEFAULT 'open',
+              user_close_id INTEGER,
+              closed_at TIMESTAMP,
+              idempotency_open TEXT,
+              idempotency_close TEXT,
+              audit_ref TEXT,
+              opened_by TEXT,
+              closed_by TEXT,
+              note TEXT,
+              expected_cash REAL NOT NULL DEFAULT 0,
+              counted_pre REAL NOT NULL DEFAULT 0,
+              counted_final REAL NOT NULL DEFAULT 0,
+              diff_cash REAL NOT NULL DEFAULT 0,
+              tolerance REAL NOT NULL DEFAULT 0,
+              idem_open TEXT,
+              idem_close TEXT
+          );
+              ''')
+          else:
+              for f in files:
+                  print(f"Applying {f}")
+                  with open(f, 'r', encoding='utf-8') as fh:
+                      cur.executescript(fh.read())
+
+          # Verificación estricta
+          cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pos_session';")
+          assert cur.fetchone(), "pos_session table missing after setup"
+          con.commit(); con.close()
+          print(f"✅ DB ready at {os.path.abspath(db)}")
+          PY
+
+      - name: Start API (background)
+        run: |
+          nohup bash scripts/run.sh > uvicorn.log 2>&1 &
+          sleep 2
+
+      - name: Wait for API (and auto-open session)
+        run: |
+          for i in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST 'http://127.0.0.1:8010/session/open' \
               -H 'Content-Type: application/json' --data '{"operator":"demo"}' || true)
-            if [ "$CODE" = "200" ]; then
-              echo "API ready"
-              break
-            fi
+            if [ "$code" = "200" ] || [ "$code" = "409" ]; then
+              echo "API ready ($code)"; exit 0; fi
             sleep 1
           done
-          if [ "$CODE" != "200" ]; then
-            echo "::error::API did not become ready"
-            echo "---- uvicorn.log ----"
-            sed -n '1,200p' uvicorn.log || true
-            exit 1
-          fi
+          echo "API did not become ready"; cat uvicorn.log; exit 1
 
-      - name: Run pytest
-        env:
-          ERP_BASE_URL: http://127.0.0.1:8010
-          TEST_COUPON: TEST10
+      - name: Run tests
         run: pytest -q -ra
 
-      - name: Upload server logs on failure
+      - name: Upload uvicorn.log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
