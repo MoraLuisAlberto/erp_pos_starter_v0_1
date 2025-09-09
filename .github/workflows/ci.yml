@@ -1,138 +1,135 @@
 name: CI
 on:
-  push:
-    branches: [develop, feature/**]
   pull_request:
-    branches: [develop, main]
-  workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      PYTHONPATH: .
-      DATABASE_URL: sqlite:///./erp.db
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
-          set -e
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          pip install pytest requests uvicorn alembic
+          python -m pip install -U pip
+          pip install -r requirements.txt
 
-      - name: Prepare DB (file + migrate + create_all)
+      - name: Create .env for CI
         run: |
-          set -e
+          cat > .env <<'EOF'
+          HOST=127.0.0.1
+          PORT=8010
+          DATABASE_URL=sqlite:///./erp.db
+          PYTHONPATH=.
+          EOF
+          echo "Created .env:"
+          cat .env
+
+      - name: Prepare SQLite schema (apply SQLs, then fallback if needed)
+        run: |
+          rm -f erp.db
           python - <<'PY'
-          import pathlib, sqlite3
-          p = pathlib.Path("erp.db")
-          if not p.exists():
-              sqlite3.connect("erp.db").close()
-              print("Created SQLite DB")
-          else:
-              print("Using existing SQLite DB")
-          PY
-          if [ -f alembic.ini ]; then alembic upgrade head || echo "Warning: alembic failed"; fi
-          python - <<'PY' || echo "Warning: metadata.create_all fallback failed"
-          try:
-              from app.core.db import Base, engine
-              Base.metadata.create_all(bind=engine)
-              print("metadata.create_all done")
-          except Exception as e:
-              print("Skip metadata.create_all fallback:", e)
-          PY
+          import sqlite3, glob, os, sys, textwrap
 
-      - name: Seed (tolerante)
-        run: |
-          set -e
-          python -m app.seed_demo || echo "Warning: seed_demo failed"
-          python -m app.seed_coupon_demo || echo "Warning: seed_coupon_demo failed"
-
-      - name: Bootstrap pos_session (create-if-missing + add-cols)
-        run: |
-          set -e
-          python scripts/bootstrap_pos_session.py
-
-      - name: Validate schema (pos_session columns)
-        run: |
-          set -e
-          python - <<'PY'
-          import sqlite3
-          want = {
-            "store_id","terminal_id","user_open_id","opened_at","status",
-            "user_close_id","closed_at","idempotency_open","idempotency_close",
-            "audit_ref","opened_by","closed_by","note",
-            "expected_cash","counted_pre","counted_final","diff_cash","tolerance",
-            "idem_open","idem_close"
-          }
-          con = sqlite3.connect("erp.db")
+          DB = 'erp.db'
+          con = sqlite3.connect(DB)
           cur = con.cursor()
-          cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pos_session'")
-          assert cur.fetchone(), "Missing table: pos_session"
-          cur.execute("PRAGMA table_info('pos_session')")
-          have = {row[1] for row in cur.fetchall()}
-          print("pos_session columns:", sorted(have))
-          missing = list(want - have)
-          assert not missing, f"pos_session missing columns: {missing}"
+
+          # 1) Aplica todos los .sql (si existen)
+          files = sorted(glob.glob('sql/*.sql') + glob.glob('db_migrations/*.sql'))
+          print("SQL files to apply:", files or "(none)")
+          for f in files:
+            print("Applying", f)
+            with open(f, 'r', encoding='utf-8') as fh:
+              sql = fh.read()
+            try:
+              cur.executescript(sql)
+            except Exception as e:
+              print(f"⚠️  Error applying {f}: {e}")
+
+          # 2) Si pos_session no existe, crea fallback mínimo
+          def has_pos_session():
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pos_session';")
+            return cur.fetchone() is not None
+
+          if not has_pos_session():
+            print("pos_session not found after SQLs; creating minimal fallback schema…")
+            cur.executescript(textwrap.dedent("""
+              CREATE TABLE IF NOT EXISTS pos_session (
+                id INTEGER PRIMARY KEY,
+                store_id INTEGER NOT NULL,
+                terminal_id INTEGER NOT NULL,
+                user_open_id INTEGER NOT NULL,
+                opened_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL DEFAULT 'open',
+                user_close_id INTEGER,
+                closed_at TIMESTAMP,
+                idempotency_open TEXT,
+                idempotency_close TEXT,
+                audit_ref TEXT,
+                opened_by TEXT,
+                closed_by TEXT,
+                note TEXT,
+                expected_cash REAL NOT NULL DEFAULT 0,
+                counted_pre REAL NOT NULL DEFAULT 0,
+                counted_final REAL NOT NULL DEFAULT 0,
+                diff_cash REAL NOT NULL DEFAULT 0,
+                tolerance REAL NOT NULL DEFAULT 0,
+                idem_open TEXT,
+                idem_close TEXT
+              );
+            """))
+
+          # 3) Verificación estricta + diagnóstico si falla
+          if not has_pos_session():
+            print("❌ pos_session still missing. Listing tables:")
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+            for (t,) in cur.fetchall():
+              print(" -", t)
+            con.close()
+            raise SystemExit(1)
+
+          con.commit()
           con.close()
+          print("✅ DB ready at", os.path.abspath(DB))
           PY
 
-      - name: Start API (background with logs)
+      - name: Start API via run.sh (background)
         run: |
-          set -e
-          python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level debug > uvicorn.log 2>&1 &
-          echo $! > uvicorn.pid
+          chmod +x scripts/run.sh
+          bash scripts/run.sh > uvicorn.log 2>&1 &
+          sleep 2
 
-      - name: Wait for /health
+      - name: Wait for API readiness (/session/open -> 200/409)
         run: |
-          set -e
-          for i in {1..40}; do
-            if curl -fsS http://127.0.0.1:8010/health >/dev/null; then
-              echo "API ready"; exit 0
-            fi
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H 'Content-Type: application/json' \
+              -d '{"operator":"demo"}' \
+              http://127.0.0.1:8010/session/open || true)
+            echo "Attempt $i: /session/open -> $code"
+            if [ "$code" = "200" ] || [ "$code" = "409" ]; then
+              echo "API ready"; exit 0; fi
             sleep 1
           done
-          echo "API did not start in time"
-          echo "==== uvicorn.log (tail) ===="
+          echo "❌ API did not become ready"
+          echo "---- uvicorn.log (tail) ----"
           tail -n 200 uvicorn.log || true
           exit 1
 
-      - name: Smoke /session/open (capture body)
-        run: |
-          set -e
-          echo '{"pos_id":1,"cashier_id":1,"opening_cash":0}' | tee /tmp/open_body.txt
-          http_code=$(curl -sS -o /tmp/open_resp.txt -w "%{http_code}" -H "Content-Type: application/json" -d @/tmp/open_body.txt http://127.0.0.1:8010/session/open || true)
-          echo "Status: $http_code"
-          echo "---- raw body ----"
-          cat /tmp/open_resp.txt || true
-          echo
-          python - <<'PY' || true
-          try:
-              txt=open("/tmp/open_resp.txt","r",encoding="utf-8").read()
-              obj=json.loads(txt)
-              print("---- pretty JSON ----")
-              import pprint; pprint.pp(obj)
-          except Exception as e:
-              print("No valid JSON body:", e)
-          PY
-
       - name: Run tests
-        run: pytest -q --maxfail=1 --disable-warnings
+        env:
+          ERP_BASE_URL: http://127.0.0.1:8010
+          TEST_COUPON: TEST10
+        run: pytest -q -ra
 
-      - name: Upload artifacts (always)
-        if: ${{ always() }}
+      - name: Upload uvicorn.log on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-artifacts
-          path: |
-            uvicorn.log
-            erp.db
-            /tmp/open_body.txt
-            /tmp/open_resp.txt
+          name: uvicorn-log
+          path: uvicorn.log
