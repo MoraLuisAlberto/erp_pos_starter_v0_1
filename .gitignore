@@ -27,3 +27,4 @@ scripts/find_endpoints.py
 
 # env file
 .env
+*.env
